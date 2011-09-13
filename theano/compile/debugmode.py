@@ -429,9 +429,26 @@ class InvalidValueError(DebugModeError):
 ########################
 
 
+def debugprint_ids_to_char(ids):
+    """This convert the ids to a base 26 number like this:
+    [0,1,25,26,27,51,52,53,54] -> [A,B,Z,AA,Ab,AZ,BA,BB,BC]
+
+    """
+
+    s = ''
+    if ids > 0:
+        i=ids%26
+        ids=ids/26
+        if ids>0:
+            s += debugprint_ids_to_char(ids-1);
+        s += unichr((ord('A')+i))
+    else:
+        s += 'A'
+    return s
+
 def debugprint(r, prefix='', depth=-1, done=None, print_type=False,
                file=sys.stdout, print_destroy_map=False, print_view_map=False,
-               order=[]):
+               order=[], ids='CHAR', ids_idx=0):
     """Print the graph leading to `r` to given depth.
 
     :param r: Variable instance
@@ -443,7 +460,17 @@ def debugprint(r, prefix='', depth=-1, done=None, print_type=False,
     :param print_destroy_map: wether to print the op destroy_map after ofther info
     :param print_view_map: wether to print the op view_map after ofther info
     :param order: If not empty will print the index in the toposort.
+    :param ids: How we want id to be printed. The accepted
+                CHAR: Use capital letter to represent the printed object id
+                id: use the python id(obj) as the id of the oject
+                '':(empty string) Don't print object id
+                Object id are used to don't print multiple the same object
+                if it appear multiple time when we unroll the graph.
+    :param ids_idx: Used internally to know witch char to print.
     """
+    if not isinstance(ids_idx, list):
+        ids_idx = [ids_idx]
+
     if depth==0:
         return
 
@@ -454,6 +481,17 @@ def debugprint(r, prefix='', depth=-1, done=None, print_type=False,
         type_str = ' <%s>' % r.type
     else:
         type_str = ''
+
+    # Find the object id to print.
+    if ids == 'id':
+        obj_id = "[@%i]"%id(r)
+    elif ids == 'CHAR':
+        obj_id = '[@%s]'%(debugprint_ids_to_char(ids_idx[0]))#TODO: Fix
+        ids_idx[0]+=1
+    elif ids == '':
+        obj_id = ''
+    else:
+        raise ValueError("debugprint received a bad value(%s) for its ids parameter"%ids)
 
     if hasattr(r.owner, 'op'):
         # this variable is the output of computation,
@@ -484,15 +522,15 @@ def debugprint(r, prefix='', depth=-1, done=None, print_type=False,
         if order:
             o = str(order.index(r.owner))
         if len(a.outputs) == 1:
-            print >> file, '%s%s [@%i]%s \'%s\' %s %s %s' % (prefix, a.op, id(r),
+            print >> file, '%s%s %s%s \'%s\' %s %s %s' % (prefix, a.op, obj_id,
                                                           type_str, r_name,
                                                           destroy_map_str,
                                                           view_map_str,
                                                           o)
         else:
-            print >> file, '%s%s.%i [@%i]%s \'%s\' %s %s %s' % (prefix, a.op,
+            print >> file, '%s%s.%i %s%s \'%s\' %s %s %s' % (prefix, a.op,
                                                              a.outputs.index(r),
-                                                             id(r), type_str,
+                                                             obj_id, type_str,
                                                              r_name,
                                                              destroy_map_str,
                                                              view_map_str,
@@ -501,10 +539,11 @@ def debugprint(r, prefix='', depth=-1, done=None, print_type=False,
             done.add(id(a))
             for i in a.inputs:
                 debugprint(i, prefix+' |', depth=depth-1, done=done,
-                           print_type=print_type, file=file, order=order)
+                           print_type=print_type, file=file, order=order,
+                           ids=ids, ids_idx=ids_idx)
     else:
         #this is a variable
-        print >> file, '%s%s [@%i]%s' % (prefix, r, id(r), type_str)
+        print >> file, '%s%s %s%s' % (prefix, r, obj_id, type_str)
 
     return file
 

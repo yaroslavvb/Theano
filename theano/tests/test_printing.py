@@ -7,7 +7,7 @@ import StringIO
 import theano
 import theano.tensor as tensor
 
-from theano.printing import min_informative_str
+from theano.printing import min_informative_str, debugprint
 
 
 def test_pydotprint_cond_highlight():
@@ -64,3 +64,53 @@ def test_min_informative_str():
         print '--'+reference+'--'
 
     assert mis == reference
+
+def test_debugprint():
+    """ evaluates a reference output to make sure the
+        min_informative_str function works as intended """
+
+    A = tensor.matrix(name = 'A')
+    B = tensor.matrix(name = 'B')
+    C = A + B
+    C.name = 'C'
+    D = tensor.matrix(name = 'D')
+    E = tensor.matrix(name = 'E')
+
+    F = D + E
+    G = C + F
+
+    s = StringIO.StringIO()
+    debugprint(G, file=s, ids='CHAR')
+    s = s.getvalue()
+    reference = """Elemwise{add,no_inplace} [@A] ''   
+ |Elemwise{add,no_inplace} [@B] 'C'   
+ | |A [@C]
+ | |B [@D]
+ |Elemwise{add,no_inplace} [@E] ''   
+ | |D [@F]
+ | |E [@G]
+"""
+
+    if s != reference:
+        print '--'+s+'--'
+        print '--'+reference+'--'
+
+    assert s == reference
+
+    s = StringIO.StringIO()
+    debugprint(G, file=s, ids='')
+    s = s.getvalue()
+    reference = """Elemwise{add,no_inplace}  ''   
+ |Elemwise{add,no_inplace}  'C'   
+ | |A 
+ | |B 
+ |Elemwise{add,no_inplace}  ''   
+ | |D 
+ | |E 
+"""
+
+    if s != reference:
+        print '--'+s+'--'
+        print '--'+reference+'--'
+
+    assert s == reference

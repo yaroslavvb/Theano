@@ -17,7 +17,7 @@ from theano.compile.profilemode import ProfileMode
 
 _logger=logging.getLogger("theano.printing")
 
-def debugprint(obj, depth=-1, print_type=False, file=None):
+def debugprint(obj, depth=-1, print_type=False, file=None, ids='CHAR'):
     """Print a computation graph to file
 
     :type obj: Variable, Apply, or Function instance
@@ -70,7 +70,7 @@ def debugprint(obj, depth=-1, print_type=False, file=None):
         raise TypeError("debugprint cannot print an object of this type", obj)
     for r in results_to_print:
         debugmode.debugprint(r, depth=depth, done=done, print_type=print_type,
-                             file=_file, order=order)
+                             file=_file, order=order, ids=ids)
     if file is _file:
         return file
     elif file=='str':
