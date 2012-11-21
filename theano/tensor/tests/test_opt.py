@@ -2329,40 +2329,53 @@ def test_local_subtensor_of_alloc():
 
     # DebugMode should detect if something goes wrong.
     # test shape combination of odd and event shape.
-    for shape in [(3, 5), (4, 6), (3, 8), (4, 7)]:
+    for shape in [(1, 2), (3, 5), (4, 6), (3, 8), (4, 7)]:
 
         xval = numpy.zeros(shape, dtype=config.floatX)
         yval = numpy.arange(shape[1], dtype=config.floatX)
 
-        for y in [theano.shared(yval), tensor.constant([1.])]:
+        for y in [tensor.constant(1.),
+                  tensor.constant([1.]),
+                  tensor.constant(yval)]:
+            for xshape in [shape, x.shape]:
+                # The rows of yx are copies of y
+                yx = tensor.alloc(y, xshape[0], xshape[1])
 
-            # The rows of yx are copies of y
-            yx = tensor.alloc(y, x.shape[0], x.shape[1])
+                # Slice of each row
+                z_mat = yx[:, 3:]
+                assert z_mat.ndim == 2
 
-            # Slice of each row
-            z_mat = yx[:, 3:]
-            assert z_mat.ndim == 2
+                # Only one column
+                z_vec = yx[:, 3]
+                assert z_vec.ndim == 1
 
-            # Only one column
-            z_vec = yx[:, 3]
-            assert z_vec.ndim == 1
-
-            for slices in [
-                # results are vector
-                (slice(None), 3),
-                (2, slice(None)),
-                # results are matrix
-                (slice(None), slice(3, None)),
-                (slice(3, None), ),
-                (slice(3, None), slice(3, None)),
-                (slice(1, 3), slice(None, -1)),
-                (slice(None, None, 2)),
-                (slice(1, None, 2)),
-                ]:
-                z = yx.__getitem__(slices)
-                f = theano.function([x], z)
-                val = f(xval)
-                assert xval.__getitem__(slices).shape == val.shape
+                for slices in [
+    #                # results are scalar
+    #                (2, 3),
+                    # results are vector
+                    (slice(None), 0),
+                    (slice(None), 3),
+                    (2, slice(None)),
+                    # results are matrix
+                    (slice(None), slice(3, None)),
+                    (slice(3, None), ),
+                    (slice(3, None), slice(3, None)),
+                    (slice(1, 3), slice(None, -1)),
+                    (slice(None, None, 2),),
+                    (slice(1, None, 2),),
+                    ]:
+#                    import pdb;pdb.set_trace()
+                    if isinstance(slices[0], int):
+                        if slices[0] > shape[0]:
+                            continue
+                    if len(slices) > 1 and isinstance(slices[1], int):
+                        if slices[1] > shape[1]:
+                            continue
+                    z = yx.__getitem__(slices)
+                    f = theano.function([x], z,
+                                        on_unused_input='ignore')
+                    val = f(xval)
+                    assert xval.__getitem__(slices).shape == val.shape
 
 
 def test_local_fill_useless():

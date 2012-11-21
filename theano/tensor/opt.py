@@ -1898,6 +1898,7 @@ def local_subtensor_of_alloc(node):
             # not a broadcasted dimensions.
             if (val.type.ndim > (i - n_added_dims) and
                 val.type.broadcastable[i - n_added_dims]):
+
                 val_slices.append(slice(None))
             else:
                 val_slices.append(sl)
@@ -1906,6 +1907,8 @@ def local_subtensor_of_alloc(node):
         if type(csl) is not slice:
             # That dimension is removed.
             pass
+        #elif csl.start is None and csl.stop is None and csl.step == 1:
+        #    nw_dims.append(dims[i])
         else:
             nw_dims += [T.ceil_intdiv((csl.stop - csl.start), csl.step)]
 
@@ -1916,6 +1919,12 @@ def local_subtensor_of_alloc(node):
     rval = T.alloc(nw_val, *nw_dims)
     if type(rval) not in (list, tuple):
         rval = [rval]
+    out = node.outputs[0]
+#    if rval[0].type != out.type:
+#        assert out.dtype == rval[0].dtype
+#        rval[0] = T.patternbroadcast(rval[0],
+#                                     out.type.broadcastable)
+#        import pdb;pdb.set_trace()
 
     return rval
 
