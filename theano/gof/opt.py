@@ -145,6 +145,9 @@ class SeqOptimizer(Optimizer, list):
         _logger.error("SeqOptimizer apply %s" % str(optimizer))
         _logger.error("Traceback:")
         _logger.error(traceback.format_exc())
+        if config.on_opt_error == 'pdb':
+            import pdb
+            pdb.set_trace()
         if config.on_opt_error == 'raise':
             raise exc
 
@@ -1084,6 +1087,9 @@ class NavigatorOptimizer(Optimizer):
         _logger.error("Optimization failure due to: %s" % str(local_opt))
         _logger.error("TRACEBACK:")
         _logger.error(traceback.format_exc())
+        if config.on_opt_error == 'pdb':
+            import pdb
+            pdb.set_trace()
         if isinstance(exc, AssertionError) or config.on_opt_error == 'raise':
             raise exc
 

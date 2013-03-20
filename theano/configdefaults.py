@@ -159,7 +159,7 @@ AddConfigVar('optimizer',
 AddConfigVar('on_opt_error',
         ("What to do when an optimization crashes: warn and skip it, or raise "
          "the exception"),
-        EnumStr('warn', 'raise'),
+        EnumStr('warn', 'raise', 'pdb'),
         in_c_key=False)
 
 
