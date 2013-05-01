@@ -2171,6 +2171,43 @@ class GpuCAReduce(GpuOp):
         return sio.getvalue()
 
 
+class GpuMaxAndArgmax(tensor.MaxAndArgmax, GpuOp):
+    not_implemented = NotImplementedError(
+        "GpuMaxAndArgmax only support reduction on matrix with the axis 1.")
+
+    def make_node(self, x, axis=None):
+        if x.ndim != 2:
+            raise self.not_implemented
+        axis = tensor.as_tensor_variable(axis)
+        try:
+            v = tensor.get_scalar_constant_value(axis)
+            if v != 1:
+                raise self.not_implemented
+        except tensor.NotScalarConstantError:
+            raise self.not_implemented
+
+        return Apply(self, [x, axis],
+                     CudaNdarrayType([x.type.broadcastable[0]])())
+    def c_support_code(self):
+        return """
+static __global__ void kernel_max_and_argmax_01_%(nodename)s(
+        const float* x,
+        const int d0,
+        const int d1,
+        const int s0,
+        const int s1,
+        const float* z
+        ){
+
+        }
+        
+        """
+    def c_code(self, node, name, inp, out, sub):
+
+    def c_code_cache_version(self):
+        return ()
+        return (1,)
+
 class GpuReshape(tensor.Reshape, GpuOp):
     """
     Implement Reshape on the gpu.
