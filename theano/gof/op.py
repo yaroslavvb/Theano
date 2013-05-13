@@ -600,6 +600,7 @@ class Op(utils.object2, PureOp, CLinkerOp):
                 rval.inputs = node_input_storage
                 rval.outputs = node_output_storage
                 rval.lazy = False
+                rval.filename = fill_storage.filename
                 return rval
                 # the next line does nothing, but pyflakes is too
                 # stupid to realize the def rval below is not a
@@ -623,6 +624,7 @@ class Op(utils.object2, PureOp, CLinkerOp):
         rval.outputs = node_output_storage
         rval.perform = p
         rval.lazy = False
+        rval.filename = 'perform()'
         return rval
 
 
