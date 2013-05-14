@@ -1077,15 +1077,19 @@ class TensorType(Type):
         """Override `CLinkerOp.c_extract` """
         return """
         %(name)s = NULL;
-        if (py_%(name)s == Py_None) {
+        if (!py_%(name)s) {
+            PyErr_SetString(PyExc_ValueError,
+                            "expected an ndarray, got NULL.");
+            %(fail)s
+        }if (py_%(name)s == Py_None) {
             // We can either fail here or set %(name)s to NULL and rely on Ops
             // using tensors to handle the NULL case, but if they fail to do so
             // they'll end up with nasty segfaults, so this is public service.
-            PyErr_SetString(PyExc_ValueError, "expected an ndarray, not None");
+            PyErr_SetString(PyExc_ValueError, "expected an ndarray, got None");
             %(fail)s
-        }
-        if (!PyArray_Check(py_%(name)s)) {
-            PyErr_SetString(PyExc_ValueError, "expected an ndarray");
+        } else if (!PyArray_Check(py_%(name)s)) {
+            PyErr_SetString(PyExc_ValueError,
+                            "expected an ndarray, got another python object.");
             %(fail)s
         }
         // We expect %(type_num)s
