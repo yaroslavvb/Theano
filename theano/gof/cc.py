@@ -663,8 +663,7 @@ class CLinker(link.Linker):
         # are mapped to the same name.  Duplicates are defined by (a
         # is b), rather than (a==b) since Constant instances can
         # compare equal to equivalent Constant instances.
-        args = []
-        args += ["storage_%s" % symbol[variable] for variable
+        args = ["storage_%s" % symbol[variable] for variable
                  in utils.uniq(self.inputs + self.outputs + self.orphans)]
 
         # <<<<HASH_PLACEHOLDER>>>> will be replaced by a hash of the whole
@@ -851,7 +850,8 @@ class CLinker(link.Linker):
         return list(set(ret))
 
     def __compile__(self, input_storage=None,
-                    output_storage=None, keep_lock=False):
+                    output_storage=None, keep_lock=False,
+                    c_callable=False):
         """WRITEME
         Compiles this linker's fgraph.
 
@@ -880,7 +880,8 @@ class CLinker(link.Linker):
         thunk, filename = self.cthunk_factory(error_storage,
                                               input_storage,
                                               output_storage,
-                                              keep_lock=keep_lock)
+                                              keep_lock=keep_lock,
+                                              c_callable=c_callable)
         return (thunk,
                 [link.Container(input, storage) for input, storage in
                  izip(self.fgraph.inputs, input_storage)],
@@ -938,7 +939,7 @@ class CLinker(link.Linker):
         init_tasks, tasks = self.get_init_tasks()
         cthunk, in_stor, out_stor, error_stor, filename = self.__compile__(
             input_storage, output_storage,
-            keep_lock=keep_lock)
+            keep_lock=keep_lock, c_callable=True)
 
         res = _CThunk(cthunk, init_tasks, tasks, error_stor, filename)
         return res, in_stor, out_stor
@@ -1172,18 +1173,19 @@ class CLinker(link.Linker):
                 return ((), sig)
         return version, sig
 
-    def compile_cmodule(self, location=None):
+    def compile_cmodule(self, location=None, c_callable=False):
         """
         Compile the module and return it.
         """
         # Go through all steps of the compilation process.
-        for step_result in self.compile_cmodule_by_step(location=location):
+        for step_result in self.compile_cmodule_by_step(location=location,
+                                                        c_callable=c_callable):
             pass
         # And return the output of the last step, which should be the module
         # itself.
         return step_result
 
-    def compile_cmodule_by_step(self, location=None):
+    def compile_cmodule_by_step(self, location=None, c_callable=False):
         """
         This method is a callback for `ModuleCache.module_from_key`.
 
@@ -1195,7 +1197,7 @@ class CLinker(link.Linker):
         """
         if location is None:
             location = cmodule.dlimport_workdir(config.compiledir)
-        mod = self.build_dynamic_module()
+        mod = self.build_dynamic_module(c_callable=c_callable)
         c_compiler = self.c_compiler()
         libs = self.libraries()
         preargs = self.compile_args()
@@ -1227,6 +1229,18 @@ class CLinker(link.Linker):
                     lib_dirs=self.lib_dirs(),
                     libs=libs,
                     preargs=preargs)
+                if c_callable:
+                    # create an executable.
+                    c_compiler.compile_str(
+                        module_name=mod.code_hash,
+                        src_code=src_code,
+                        location=location,
+                        include_dirs=self.header_dirs(),
+                        lib_dirs=self.lib_dirs(),
+                        libs=libs,
+                        preargs=preargs,
+                        shared=False, py_module=False,
+                        header=True)
             except Exception, e:
                 e.args += (str(self.fgraph),)
                 raise
@@ -1235,7 +1249,7 @@ class CLinker(link.Linker):
 
         yield module
 
-    def build_dynamic_module(self):
+    def build_dynamic_module(self, c_callable=False):
         """Return a cmodule.DynamicModule instance full of the code
         for our fgraph.
         """
@@ -1285,10 +1299,102 @@ class CLinker(link.Linker):
         for header in self.headers():
             mod.add_include(header)
 
+
+        ## TODO: C function callable from C with (inputs ndarray) as inputs
+        #import pdb;pdb.set_trace()
+        #code = self.c_call(len(self.inputs), len(self.outputs))
+        #c_call = cmodule.ExtFunction('c_call', code,
+        #                             method=cmodule.METH_VARARGS)
+        #mod.add_function(c_call)
+        in_out_list = ""
+        in_out_param = ["io%d_list" % idx for idx in
+                        range(len(self.inputs + self.outputs))]
+        out_list = in_out_param[-1]
+        in_init = ""
+        out_print = ""
+        for idx, io in enumerate(self.inputs + self.outputs):
+            var = in_out_param[idx]
+            in_out_list += """
+                PyObject* %(var)s = PyList_New(1);
+                Py_INCREF(Py_None);
+                PyList_SetItem(%(var)s, 0, Py_None);
+            """ % locals()
+        for idx, inp in enumerate(self.inputs):
+            var = in_out_param[idx]
+            in_init += """
+            PyObject* in%(idx)s_value = PyArray_Arange(0., 10., 1., NPY_FLOAT64);
+            PyList_SetItem(%(var)s, 0, in%(idx)s_value);
+            in%(idx)s_value = NULL;
+            """ % locals()
+        for idx, inp in enumerate(self.outputs):
+            var = in_out_param[idx + len(self.inputs)]
+            out_print += """
+            PyObject_Print(%(var)s, stdout, Py_PRINT_RAW);
+            """ % locals()
+
+        in_out_param = ', '.join(in_out_param)
+
+        main = """
+        int main(int argc, char *argv[]) {
+    Py_SetProgramName(argv[0]);  /* optional but recommended */
+    Py_Initialize();
+
+    //PyRun_SimpleString("import sys\\n"
+    //    "print sys.path\\n");
+    import_array1(1);
+    printf("main start\\n");
+
+    // Define the list for error information.
+    PyObject* err_list = PyList_New(3);
+    PyList_SetItem(err_list, 0, Py_None);
+    PyList_SetItem(err_list, 1, Py_None);
+    PyList_SetItem(err_list, 2, Py_None);
+    Py_INCREF(Py_None);
+    Py_INCREF(Py_None);
+    Py_INCREF(Py_None);
+
+    %(in_out_list)s
+
+    %(struct_name)s *struct_ptr = new %(struct_name)s ();
+    int ret = struct_ptr->init (err_list, %(in_out_param)s);
+    if (ret == 0){
+        %(in_init)s
+        int run_ret = struct_ptr->run();
+        printf("\\nrun_ret=%%d\\n", run_ret);
+
+        %(out_print)s
+
+        if (run_ret != 0) {
+            PyObject * err = PyErr_Occurred(); //print <nil>
+            printf("\\nrun_ret=%%d, %%p\\n", run_ret, err);
+            //PyObject_Print(err, stdout, 0);//, Py_PRINT_RAW); print <nil>
+            PyObject_Print(err_list, stdout, 0);//, Py_PRINT_RAW);
+            //PyErr_Print();
+        }
+    }
+    delete struct_ptr;
+    //Py_CLEAR(err_list);
+    //Py_CLEAR(in1_inp);
+    //Py_CLEAR(out1_inp);
+
+    printf("\\nmain end, before Py_Finalize\\n");
+    Py_Finalize();
+    return ret;
+}
+        """ % dict(struct_name=self.struct_name,
+                   **locals())
+
+        if (len(self.inputs) > 0 and
+            all([i.dtype == 'float64' for i in self.inputs]) and
+            all([i.broadcastable == (False,) for i in self.inputs]) and
+            len(self.outputs) > 0):
+            mod.add_support_code(main)
+        else:
+            import pdb;pdb.set_trace()
         return mod
 
     def cthunk_factory(self, error_storage, in_storage, out_storage,
-                       keep_lock=False):
+                       keep_lock=False, c_callable=False):
         """WRITEME
         error_storage -> list of length 3
         in_storage -> list of lists of length 1, one per input
@@ -1304,12 +1410,14 @@ class CLinker(link.Linker):
             key = self.cmodule_key()
         except KeyError:
             key = None
-        if key is None:
+        # TODO: enable the cache when c_callable is True.
+        if key is None or c_callable:
             # If we can't get a key, then forget the cache mechanism.
-            module = self.compile_cmodule()
+            module = self.compile_cmodule(c_callable=c_callable)
         else:
             module = get_module_cache().module_from_key(
-                key=key, fn=self.compile_cmodule_by_step, keep_lock=keep_lock)
+                key=key, fn=self.compile_cmodule_by_step,
+                keep_lock=keep_lock, c_callable=c_callable)
 
         vars = self.inputs + self.outputs + self.orphans
         # List of indices that should be ignored when passing the arguments
