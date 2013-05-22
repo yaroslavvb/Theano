@@ -5,6 +5,7 @@ Defines Linkers that deal with C implementations.
 # Python imports
 from copy import copy
 import os
+import re
 import sys
 from itertools import izip
 
@@ -1216,6 +1217,16 @@ class CLinker(link.Linker):
                 preargs.remove('-DREPLACE_WITH_AMDLIBM')
             if 'amdlibm' in libs:
                 libs.remove('amdlibm')
+        mod.add_header_code(
+            "//command line used to compile: \n" +
+            "//" + ' '.join(
+                c_compiler.compile_command(
+                    module_name=mod.code_hash,
+                    location=location,
+                    include_dirs=self.header_dirs(),
+                    lib_dirs=self.lib_dirs(),
+                    libs=libs,
+                    preargs=preargs)[2]))
         src_code = mod.code()
         yield src_code
         get_lock()
@@ -1230,10 +1241,35 @@ class CLinker(link.Linker):
                     lib_dirs=self.lib_dirs(),
                     libs=libs,
                     preargs=preargs)
+
                 if c_callable:
+                    filename = os.path.join(location, '%s.h' % mod.code_hash)
+                    mod.gen_header(filename)
+                    # The main of the executable need the hash of the
+                    # shared lib.
+                    main = re.sub(mod.hash_placeholder, mod.code_hash,
+                                  self.c_main())
+
+                    mod_exec = cmodule.DynamicModule()
+                    for header in self.headers():
+                        mod_exec.add_include(header)
+                    mod_exec.add_include(filename)
+                    mod_exec.add_support_code(main)
                     # create an executable.
+                    mod_exec.add_header_code(
+                        "//command line used to compile: \n" +
+                        "//" + ' '.join(
+                        c_compiler.compile_command(
+                            module_name=mod.code_hash,
+                            location=location,
+                            include_dirs=self.header_dirs(),
+                            lib_dirs=self.lib_dirs(),
+                            libs=libs,
+                            preargs=preargs)[2]))
+                    src_code = mod_exec.code()
+                    preargs.append(os.path.join(location, mod.code_hash+".so"))
                     c_compiler.compile_str(
-                        module_name=mod.code_hash,
+                        module_name=mod_exec.code_hash,
                         src_code=src_code,
                         location=location,
                         include_dirs=self.header_dirs(),
@@ -1241,7 +1277,9 @@ class CLinker(link.Linker):
                         libs=libs,
                         preargs=preargs,
                         shared=False, py_module=False,
-                        header=True)
+                        code_filename='exec.cpp',
+                        out_filename='exec')
+                    mod_exec.gen_header('exec.h')
             except Exception, e:
                 e.args += (str(self.fgraph),)
                 raise
@@ -1295,11 +1333,11 @@ class CLinker(link.Linker):
         for support_code in self.support_code() + self.c_support_code_apply:
             mod.add_support_code(support_code)
         mod.add_support_code(self.struct_code)
+        mod.add_header_code(self.struct_code)
         mod.add_support_code(static)
         mod.add_function(instantiate)
         for header in self.headers():
             mod.add_include(header)
-
 
         ## TODO: C function callable from C with (inputs ndarray) as inputs
         #import pdb;pdb.set_trace()
@@ -1307,70 +1345,15 @@ class CLinker(link.Linker):
         #c_call = cmodule.ExtFunction('c_call', code,
         #                             method=cmodule.METH_VARARGS)
         #mod.add_function(c_call)
-        in_init = ""
-        out_print = ""
-        args = ["storage_%s" % self.r2symbol[variable] for variable
-                in utils.uniq(self.inputs)]
-        for var in args:
-            in_init += """
-            PyObject* %(var)s_value = PyArray_Arange(0., 10., 1., NPY_FLOAT64);
-            PyList_SetItem(struct_ptr->%(var)s, 0, %(var)s_value);
-             %(var)s_value = NULL;
-            """ % locals()
-        args = ["storage_%s" % self.r2symbol[variable] for variable
-                in utils.uniq(self.outputs)]
-        for var in args:
-            out_print += """
-            PyObject_Print(struct_ptr->%(var)s, stdout, Py_PRINT_RAW);
-            """ % locals()
-
-        main = """
-        int main(int argc, char *argv[]) {
-    Py_SetProgramName(argv[0]);  /* optional but recommended */
-    Py_Initialize();
-
-    //PyRun_SimpleString("import sys\\n"
-    //    "print sys.path\\n");
-
-    //import_array{,1,2} can be called many times without problems.
-    import_array1(1);
-    printf("main start\\n");
-
-    %(struct_name)s *struct_ptr = cinit();
-    int run_ret = 0;
-    if (struct_ptr){
-        %(in_init)s
-        run_ret = struct_ptr->run();
-        printf("\\nrun_ret=%%d\\n", run_ret);
-
-        %(out_print)s
-
-        if (run_ret != 0) {
-            PyObject * err = PyErr_Occurred(); //print <nil>
-            printf("\\nrun_ret=%%d, %%p\\n", run_ret, err);
-            //PyObject_Print(err, stdout, 0);//, Py_PRINT_RAW); print <nil>
-            PyObject_Print(struct_ptr->__ERROR, stdout, 0);
-            //PyErr_Print();
-        }
-    } else {
-      return 1;
-    }
-    //TODO, should struct_ptr.cleanup() cleanup the __ERROR structure?
-    delete struct_ptr;
-
-    printf("\\nmain end, before Py_Finalize\\n");
-    Py_Finalize();
-    return run_ret;
-}
-        """ % dict(struct_name=self.struct_name,
-                   **locals())
-
         if (len(self.inputs) > 0 and
             all([i.dtype == 'float64' for i in self.inputs]) and
             all([i.broadcastable == (False,) for i in self.inputs]) and
             len(self.outputs) > 0):
+
             mod.add_support_code(self.cinit_code(len(self.args)))
-            mod.add_support_code(main)
+            mod.add_header_code("""
+                                %(struct_name)s* cinit();
+                                """ % dict(struct_name=self.struct_name))
         else:
             import pdb;pdb.set_trace()
         return mod
@@ -1442,8 +1425,71 @@ class CLinker(link.Linker):
         print >> code, "  return thunk; }"
         return code.getvalue()
 
+    def c_main(self):
+        """This function create an example main function that call the
+        shared lib of this thunk/function.
+
+        """
+        in_init = ""
+        out_print = ""
+        args = ["storage_%s" % self.r2symbol[variable] for variable
+                in utils.uniq(self.inputs)]
+        for var in args:
+            in_init += """
+            PyObject* %(var)s_value = PyArray_Arange(0., 10., 1., NPY_FLOAT64);
+            PyList_SetItem(struct_ptr->%(var)s, 0, %(var)s_value);
+            %(var)s_value = NULL;
+            """ % locals()
+        args = ["storage_%s" % self.r2symbol[variable] for variable
+                in utils.uniq(self.outputs)]
+        for var in args:
+            out_print += """
+            PyObject_Print(struct_ptr->%(var)s, stdout, Py_PRINT_RAW);
+            """ % locals()
+            main = """
+        int main(int argc, char *argv[]) {
+    Py_SetProgramName(argv[0]);  /* optional but recommended */
+    Py_Initialize();
+
+    //PyRun_SimpleString("import sys\\n"
+    //    "print sys.path\\n");
+
+    //import_array{,1,2} can be called many times without problems.
+    import_array1(1);
+    printf("main start\\n");
+
+    %(struct_name)s *struct_ptr = cinit();
+    int run_ret = 0;
+    if (struct_ptr){
+        %(in_init)s
+        run_ret = struct_ptr->run();
+        printf("\\nrun_ret=%%d\\n", run_ret);
+
+        %(out_print)s
+
+        if (run_ret != 0) {
+            PyObject * err = PyErr_Occurred(); //print <nil>
+            printf("\\nrun_ret=%%d, %%p\\n", run_ret, err);
+            //PyObject_Print(err, stdout, 0);//, Py_PRINT_RAW); print <nil>
+            PyObject_Print(struct_ptr->__ERROR, stdout, 0);
+            //PyErr_Print();
+        }
+    } else {
+      return 1;
+    }
+    //TODO, should struct_ptr.cleanup() cleanup the __ERROR structure?
+    delete struct_ptr;
+
+    printf("\\nmain end, before Py_Finalize\\n");
+    Py_Finalize();
+    return run_ret;
+}
+        """ % dict(struct_name=self.struct_name,
+                   **locals())
+        return main
+
     def cinit_code(self, n_args):
-        code = StringIO.StringIO()
+        code = StringIO()
         struct_name = self.struct_name
         param = ','.join('PyObject * arg_%i' % n for n in xrange(n_args)), ');'
 
@@ -1458,7 +1504,7 @@ class CLinker(link.Linker):
             """ % locals()
         in_out_param = ', '.join(in_out_param)
         print >> code, """
-static %(struct_name)s* cinit() {
+%(struct_name)s* cinit() {
 
     // Define the list for error information.
     PyObject* err_list = PyList_New(3);
