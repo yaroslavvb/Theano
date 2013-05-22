@@ -1306,33 +1306,22 @@ class CLinker(link.Linker):
         #c_call = cmodule.ExtFunction('c_call', code,
         #                             method=cmodule.METH_VARARGS)
         #mod.add_function(c_call)
-        in_out_list = ""
-        in_out_param = ["io%d_list" % idx for idx in
-                        range(len(self.inputs + self.outputs))]
-        out_list = in_out_param[-1]
         in_init = ""
         out_print = ""
-        for idx, io in enumerate(self.inputs + self.outputs):
-            var = in_out_param[idx]
-            in_out_list += """
-                PyObject* %(var)s = PyList_New(1);
-                Py_INCREF(Py_None);
-                PyList_SetItem(%(var)s, 0, Py_None);
-            """ % locals()
-        for idx, inp in enumerate(self.inputs):
-            var = in_out_param[idx]
+        args = ["storage_%s" % self.r2symbol[variable] for variable
+                in utils.uniq(self.inputs)]
+        for var in args:
             in_init += """
-            PyObject* in%(idx)s_value = PyArray_Arange(0., 10., 1., NPY_FLOAT64);
-            PyList_SetItem(%(var)s, 0, in%(idx)s_value);
-            in%(idx)s_value = NULL;
+            PyObject* %(var)s_value = PyArray_Arange(0., 10., 1., NPY_FLOAT64);
+            PyList_SetItem(struct_ptr->%(var)s, 0, %(var)s_value);
+             %(var)s_value = NULL;
             """ % locals()
-        for idx, inp in enumerate(self.outputs):
-            var = in_out_param[idx + len(self.inputs)]
+        args = ["storage_%s" % self.r2symbol[variable] for variable
+                in utils.uniq(self.outputs)]
+        for var in args:
             out_print += """
-            PyObject_Print(%(var)s, stdout, Py_PRINT_RAW);
+            PyObject_Print(struct_ptr->%(var)s, stdout, Py_PRINT_RAW);
             """ % locals()
-
-        in_out_param = ', '.join(in_out_param)
 
         main = """
         int main(int argc, char *argv[]) {
@@ -1341,25 +1330,16 @@ class CLinker(link.Linker):
 
     //PyRun_SimpleString("import sys\\n"
     //    "print sys.path\\n");
+
+    //import_array{,1,2} can be called many times without problems.
     import_array1(1);
     printf("main start\\n");
 
-    // Define the list for error information.
-    PyObject* err_list = PyList_New(3);
-    PyList_SetItem(err_list, 0, Py_None);
-    PyList_SetItem(err_list, 1, Py_None);
-    PyList_SetItem(err_list, 2, Py_None);
-    Py_INCREF(Py_None);
-    Py_INCREF(Py_None);
-    Py_INCREF(Py_None);
-
-    %(in_out_list)s
-
-    %(struct_name)s *struct_ptr = new %(struct_name)s ();
-    int ret = struct_ptr->init (err_list, %(in_out_param)s);
-    if (ret == 0){
+    %(struct_name)s *struct_ptr = cinit();
+    int run_ret = 0;
+    if (struct_ptr){
         %(in_init)s
-        int run_ret = struct_ptr->run();
+        run_ret = struct_ptr->run();
         printf("\\nrun_ret=%%d\\n", run_ret);
 
         %(out_print)s
@@ -1368,18 +1348,18 @@ class CLinker(link.Linker):
             PyObject * err = PyErr_Occurred(); //print <nil>
             printf("\\nrun_ret=%%d, %%p\\n", run_ret, err);
             //PyObject_Print(err, stdout, 0);//, Py_PRINT_RAW); print <nil>
-            PyObject_Print(err_list, stdout, 0);//, Py_PRINT_RAW);
+            PyObject_Print(struct_ptr->__ERROR, stdout, 0);
             //PyErr_Print();
         }
+    } else {
+      return 1;
     }
+    //TODO, should struct_ptr.cleanup() cleanup the __ERROR structure?
     delete struct_ptr;
-    //Py_CLEAR(err_list);
-    //Py_CLEAR(in1_inp);
-    //Py_CLEAR(out1_inp);
 
     printf("\\nmain end, before Py_Finalize\\n");
     Py_Finalize();
-    return ret;
+    return run_ret;
 }
         """ % dict(struct_name=self.struct_name,
                    **locals())
@@ -1388,6 +1368,7 @@ class CLinker(link.Linker):
             all([i.dtype == 'float64' for i in self.inputs]) and
             all([i.broadcastable == (False,) for i in self.inputs]) and
             len(self.outputs) > 0):
+            mod.add_support_code(self.cinit_code(len(self.args)))
             mod.add_support_code(main)
         else:
             import pdb;pdb.set_trace()
@@ -1458,6 +1439,46 @@ class CLinker(link.Linker):
         else:
             print >> code, '  PyObject* thunk = PyCObject_FromVoidPtrAndDesc((void*)(&%(struct_name)s_executor), struct_ptr, %(struct_name)s_destructor);' % locals()
         print >> code, "  return thunk; }"
+        return code.getvalue()
+
+    def cinit_code(self, n_args):
+        code = StringIO.StringIO()
+        struct_name = self.struct_name
+        param = ','.join('PyObject * arg_%i' % n for n in xrange(n_args)), ');'
+
+        in_out_list = ""
+        in_out_param = ["io%d_list" % idx for idx in range(n_args)]
+        for idx in range(n_args):
+            var = in_out_param[idx]
+            in_out_list += """
+                PyObject* %(var)s = PyList_New(1);
+                Py_INCREF(Py_None);
+                PyList_SetItem(%(var)s, 0, Py_None);
+            """ % locals()
+        in_out_param = ', '.join(in_out_param)
+        print >> code, """
+static %(struct_name)s* cinit() {
+
+    // Define the list for error information.
+    PyObject* err_list = PyList_New(3);
+    PyList_SetItem(err_list, 0, Py_None);
+    PyList_SetItem(err_list, 1, Py_None);
+    PyList_SetItem(err_list, 2, Py_None);
+    Py_INCREF(Py_None);
+    Py_INCREF(Py_None);
+    Py_INCREF(Py_None);
+
+    %(in_out_list)s
+
+    //TODO error handling
+    %(struct_name)s* struct_ptr = new %(struct_name)s();
+
+    //TODO error handling
+    struct_ptr->init(err_list, %(in_out_param)s);
+    return struct_ptr;
+}
+        """ % locals()
+
         return code.getvalue()
 
 
