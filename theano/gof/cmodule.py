@@ -1734,7 +1734,8 @@ class GCC_compiler(object):
     def compile_str(module_name, src_code, location=None,
                     include_dirs=None, lib_dirs=None, libs=None,
                     preargs=None, py_module=True, shared=True,
-                    header=False):
+                    header=False, code_filename='mod.cpp',
+                    out_filename=None):
         """
         :param module_name: string (this has been embedded in the src_code
 
@@ -1763,6 +1764,12 @@ class GCC_compiler(object):
 
         :param header: bool, if True, create an header file with the function
             interface to call it and the command line used to compile the file.
+
+        :param code_filename: The filename to store src_code for the
+            compilation
+
+        :param out_filename: The filename of the output of g++ when not doing
+            a shared module
 
         :returns: dynamically-imported python module of the compiled code.
             (unless py_module is False, in that case returns None.)
@@ -1796,7 +1803,7 @@ class GCC_compiler(object):
         if python_lib not in lib_dirs:
             lib_dirs.append(python_lib)
 
-        cppfilename = os.path.join(location, 'mod.cpp')
+        cppfilename = os.path.join(location, code_filename)
         cppfile = open(cppfilename, 'w')
 
         _logger.debug('Writing module C++ code to %s', cppfilename)
@@ -1808,16 +1815,20 @@ class GCC_compiler(object):
         cppfile.close()
 
         if shared:
-            lib_filename = os.path.join(location, '%s.%s' %
+            assert out_filename is None
+            out_filename = os.path.join(location, '%s.%s' %
                                         (module_name, get_lib_extension()))
 
-            _logger.debug('Generating shared lib %s', lib_filename)
+            _logger.debug('Generating shared lib %s', out_filename)
             cmd = ['g++', get_gcc_shared_library_arg(), '-g']
         else:
             assert not py_module
-            lib_filename = os.path.join(location, module_name)
-
-            _logger.debug('Generating exec %s', lib_filename)
+            if out_filename is None:
+                out_filename = os.path.join(location, module_name)
+            else:
+                module_name = out_filename
+                out_filename = os.path.join(location, out_filename)
+            _logger.debug('Generating exec %s', out_filename)
             cmd = ['g++', '-g']
 
         if config.cmodule.remove_gxx_opt:
@@ -1825,7 +1836,7 @@ class GCC_compiler(object):
         else:
             cmd.extend(preargs)
         cmd.extend('-I%s' % idir for idir in include_dirs)
-        cmd.extend(['-o', lib_filename])
+        cmd.extend(['-o', out_filename])
         cmd.append(cppfilename)
         cmd.extend(['-L%s' % ldir for ldir in lib_dirs])
         cmd.extend(['-l%s' % l for l in libs])
@@ -1875,8 +1886,8 @@ class GCC_compiler(object):
         if py_module:
             #touch the __init__ file
             open(os.path.join(location, "__init__.py"), 'w').close()
-            assert os.path.isfile(lib_filename)
-            return dlimport(lib_filename)
+            assert os.path.isfile(out_filename)
+            return dlimport(out_filename)
 
 
 def icc_module_compile_str(*args):
