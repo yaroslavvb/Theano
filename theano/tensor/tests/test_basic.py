@@ -1465,13 +1465,18 @@ ErfcInplaceTester = makeBroadcastTester(
     mode=mode_no_scipy,
     inplace=True,
     skip=skip_scipy)
-
+_good_erfinv = dict(
+        normal=[numpy.asarray(rand_ranged(-1, 1, (2, 3)), dtype=floatX)],
+#        integers=[randint_ranged(-5, 5, (2, 3))],
+        corner_case=[corner_case[4:-4]],
+        empty=[numpy.asarray([], dtype=floatX)],
+        )
 ErfinvTester = makeBroadcastTester(
     op=tensor.erfinv,
     expected=expected_erfinv,
-    good=_good_broadcast_unary_normal_no_int_no_complex,
+    good=_good_erfinv,  # _good_broadcast_unary_normal_no_int_no_complex,
     grad=_grad_broadcast_unary_abs1_no_complex,
-    eps=2e-10,
+    eps=2e-6,
     mode=mode_no_scipy,
     skip=skip_scipy)
 
