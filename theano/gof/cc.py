@@ -1267,7 +1267,8 @@ class CLinker(link.Linker):
                             libs=libs,
                             preargs=preargs)[2]))
                     src_code = mod_exec.code()
-                    preargs.append(os.path.join(location, mod.code_hash+".so"))
+                    preargs.append(os.path.join(location, mod.code_hash + "." +
+                                   cmodule.get_lib_extension()))
                     c_compiler.compile_str(
                         module_name=mod_exec.code_hash,
                         src_code=src_code,
@@ -1352,7 +1353,12 @@ class CLinker(link.Linker):
 
             mod.add_support_code(self.cinit_code(len(self.args)))
             mod.add_header_code("""
-                                %(struct_name)s* cinit();
+                                #ifdef _WIN32
+                                #define DllExport __declspec(dllexport)
+                                #else
+                                #define DllExport
+                                #endif
+                                DllExport %(struct_name)s* cinit();
                                 """ % dict(struct_name=self.struct_name))
         else:
             import pdb;pdb.set_trace()
