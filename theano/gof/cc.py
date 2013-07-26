@@ -1223,17 +1223,17 @@ class CLinker(link.Linker):
                 preargs.remove('-DREPLACE_WITH_AMDLIBM')
             if 'amdlibm' in libs:
                 libs.remove('amdlibm')
-        mod.add_header_code(
-            "//command line used to compile: \n" +
-            "//" + ' '.join(
-                c_compiler.compile_command(
-                    module_name=mod.code_hash,
-                    location=location,
-                    include_dirs=self.header_dirs(),
-                    lib_dirs=self.lib_dirs(),
-                    libs=libs,
-                    preargs=preargs)[2]))
         if self.c_callable:
+            mod.add_header_code(
+                "//command line used to compile: \n" +
+                "//" + ' '.join(
+                    c_compiler.compile_command(
+                        module_name=mod.code_hash,
+                        location=location,
+                        include_dirs=self.header_dirs(),
+                        lib_dirs=self.lib_dirs(),
+                        libs=libs,
+                        preargs=preargs)[2]))
             # Add the include filename with the placeholder, as the hash is not
             # yet computer, but we need to add the include to compute the hash.
             filename_h = os.path.join(location, mod.hash_placeholder + '.h')
@@ -1371,7 +1371,7 @@ class CLinker(link.Linker):
         for header in self.headers():
             mod.add_include(header)
 
-        if (len(self.inputs) > 0 and len(self.outputs) > 0):
+        if self.c_callable:
             mod.add_support_code(self.cinit_code(len(self.args)))
             mod.add_header_code("""
                                 #ifdef _WIN32
