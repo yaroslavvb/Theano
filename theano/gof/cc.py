@@ -433,10 +433,11 @@ class CLinker(link.Linker):
     associated to it during the computation (to avoid reusing it).
     """
 
-    def __init__(self, schedule=None):
+    def __init__(self, schedule=None, c_callable=False):
         self.fgraph = None
         if schedule:
             self.schedule = schedule
+        self.c_callable = c_callable
 
     def accept(self, fgraph, no_recycling=None):
         """WRITEME"""
@@ -852,8 +853,7 @@ class CLinker(link.Linker):
         return list(set(ret))
 
     def __compile__(self, input_storage=None,
-                    output_storage=None, keep_lock=False,
-                    c_callable=False):
+                    output_storage=None, keep_lock=False):
         """WRITEME
         Compiles this linker's fgraph.
 
@@ -882,8 +882,7 @@ class CLinker(link.Linker):
         thunk, filename = self.cthunk_factory(error_storage,
                                               input_storage,
                                               output_storage,
-                                              keep_lock=keep_lock,
-                                              c_callable=c_callable)
+                                              keep_lock=keep_lock)
         return (thunk,
                 [link.Container(input, storage) for input, storage in
                  izip(self.fgraph.inputs, input_storage)],
@@ -941,7 +940,7 @@ class CLinker(link.Linker):
         init_tasks, tasks = self.get_init_tasks()
         cthunk, in_stor, out_stor, error_stor, filename = self.__compile__(
             input_storage, output_storage,
-            keep_lock=keep_lock, c_callable=True)
+            keep_lock=keep_lock)
 
         res = _CThunk(cthunk, init_tasks, tasks, error_stor, filename)
         res.nodes = self.node_order
@@ -958,6 +957,7 @@ class CLinker(link.Linker):
         {{{
             'CLinker.cmodule_key', compilation args, libraries,
             header_dirs, numpy ABI version, config md5,
+            [c_callable,]
             (op0, input_signature0, output_signature0),
             (op1, input_signature1, output_signature1),
             ...
@@ -969,6 +969,7 @@ class CLinker(link.Linker):
         The outer tuple has a brief header, containing the compilation options
         passed to the compiler, the libraries to link against, an md5 hash
         of theano.config (for all config options where "in_c_key" is True).
+        If CLinker.c_callable is True, it is added to the signature.
         It is followed by elements for every node in the
         topological ordering of `self.fgraph`.
 
@@ -1087,6 +1088,11 @@ class CLinker(link.Linker):
         else:
             sig.append('md5: <omitted>')
 
+        # We append it only if we are c_callable to don't trash the
+        # old compiled dir.
+        if self.c_callable:
+            sig.append('c_callable: ' + str(self.c_callable))
+
         error_on_play = [False]
 
         def in_sig(i, topological_pos, i_idx):
@@ -1176,19 +1182,18 @@ class CLinker(link.Linker):
                 return ((), sig)
         return version, sig
 
-    def compile_cmodule(self, location=None, c_callable=False):
+    def compile_cmodule(self, location=None):
         """
         Compile the module and return it.
         """
         # Go through all steps of the compilation process.
-        for step_result in self.compile_cmodule_by_step(location=location,
-                                                        c_callable=c_callable):
+        for step_result in self.compile_cmodule_by_step(location=location):
             pass
         # And return the output of the last step, which should be the module
         # itself.
         return step_result
 
-    def compile_cmodule_by_step(self, location=None, c_callable=False):
+    def compile_cmodule_by_step(self, location=None):
         """
         This method is a callback for `ModuleCache.module_from_key`.
 
@@ -1200,7 +1205,7 @@ class CLinker(link.Linker):
         """
         if location is None:
             location = cmodule.dlimport_workdir(config.compiledir)
-        mod = self.build_dynamic_module(c_callable=c_callable)
+        mod = self.build_dynamic_module()
         c_compiler = self.c_compiler()
         libs = self.libraries()
         preargs = self.compile_args()
@@ -1228,13 +1233,13 @@ class CLinker(link.Linker):
                     lib_dirs=self.lib_dirs(),
                     libs=libs,
                     preargs=preargs)[2]))
-        if c_callable:
+        if self.c_callable:
             # Add the include filename with the placeholder, as the hash is not
             # yet computer, but we need to add the include to compute the hash.
             filename_h = os.path.join(location, mod.hash_placeholder + '.h')
             mod.add_include(filename_h)
         src_code = mod.code()
-        if c_callable:
+        if self.c_callable:
             filename_h = os.path.join(location, '%s.h' % mod.code_hash)
             mod.gen_header(filename_h)
         yield src_code
@@ -1251,7 +1256,7 @@ class CLinker(link.Linker):
                     libs=libs,
                     preargs=preargs)
 
-                if c_callable:
+                if self.c_callable:
                     # The main of the executable need the hash of the
                     # shared lib.
                     main = re.sub(mod.hash_placeholder, mod.code_hash,
@@ -1313,7 +1318,7 @@ class CLinker(link.Linker):
 
         yield module
 
-    def build_dynamic_module(self, c_callable=False):
+    def build_dynamic_module(self):
         """Return a cmodule.DynamicModule instance full of the code
         for our fgraph.
         """
@@ -1357,7 +1362,7 @@ class CLinker(link.Linker):
         # We add all the support code, compile args, headers and libs we need.
         for support_code in self.support_code() + self.c_support_code_apply:
             mod.add_support_code(support_code)
-        if not c_callable:
+        if not self.c_callable:
             mod.add_support_code(self.struct_code)
         else:
             mod.add_header_code(self.struct_code)
@@ -1386,10 +1391,11 @@ class CLinker(link.Linker):
                                 """ % dict(struct_name=self.struct_name))
         else:
             import pdb;pdb.set_trace()
+            pass
         return mod
 
     def cthunk_factory(self, error_storage, in_storage, out_storage,
-                       keep_lock=False, c_callable=False):
+                       keep_lock=False):
         """WRITEME
         error_storage -> list of length 3
         in_storage -> list of lists of length 1, one per input
@@ -1406,13 +1412,13 @@ class CLinker(link.Linker):
         except KeyError:
             key = None
         # TODO: enable the cache when c_callable is True.
-        if key is None or c_callable:
+        if key is None or self.c_callable:
             # If we can't get a key, then forget the cache mechanism.
-            module = self.compile_cmodule(c_callable=c_callable)
+            module = self.compile_cmodule()
         else:
             module = get_module_cache().module_from_key(
                 key=key, fn=self.compile_cmodule_by_step,
-                keep_lock=keep_lock, c_callable=c_callable)
+                keep_lock=keep_lock)
 
         vars = self.inputs + self.outputs + self.orphans
         # List of indices that should be ignored when passing the arguments
