@@ -1371,15 +1371,7 @@ class CLinker(link.Linker):
         for header in self.headers():
             mod.add_include(header)
 
-        ## TODO: C function callable from C with (inputs ndarray) as inputs
-        #import pdb;pdb.set_trace()
-        #code = self.c_call(len(self.inputs), len(self.outputs))
-        #c_call = cmodule.ExtFunction('c_call', code,
-        #                             method=cmodule.METH_VARARGS)
-        #mod.add_function(c_call)
-        if (len(self.inputs) > 0 and
-            len(self.outputs) > 0):
-
+        if (len(self.inputs) > 0 and len(self.outputs) > 0):
             mod.add_support_code(self.cinit_code(len(self.args)))
             mod.add_header_code("""
                                 #ifdef _WIN32
@@ -1389,9 +1381,6 @@ class CLinker(link.Linker):
                                 #endif
                                 DllExport %(struct_name)s* cinit();
                                 """ % dict(struct_name=self.struct_name))
-        else:
-            import pdb;pdb.set_trace()
-            pass
         return mod
 
     def cthunk_factory(self, error_storage, in_storage, out_storage,
