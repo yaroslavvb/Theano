@@ -127,8 +127,8 @@ class GpuDotCsrDense(gof.Op):
     {
         usable_y = &usable_y_stack;
         %(name)serr = GpuArray_empty(usable_y,
-            GpuArray_default_context()->ops,
-            GpuArray_default_context()->ctx,
+            pygpu_default_context()->ops,
+            pygpu_default_context()->ctx,
             %(y)s->ga.typecode,
             2,
             %(y)s->ga.dimensions,
@@ -136,76 +136,98 @@ class GpuDotCsrDense(gof.Op):
         if (%(name)serr != GA_NO_ERROR) {
             PyErr_SetString(
                 PyExc_MemoryError,
-                "GpuDotCsrDense: Can't allocate device memory for result.");
+                "GpuDotCsrDense: Can't allocate device memory for transposed input.");
+        printf("before fail\\n");
             %(fail)s
         }
         if (GpuArray_copy(usable_y, &(%(y)s->ga), GA_F_ORDER) != GA_NO_ERROR){
             PyErr_SetString(
                 PyExc_ValueError,
                 "GpuDotCsrDense: call to GpuArray_copy() failed");
+        printf("before fail\\n");
             %(fail)s
         }
     }else{
         usable_y = &(%(y)s->ga);
     }
-    /* Get handle to the CUSPARSE context */
-    cusparseStatus = cusparseCreate(&cusparseHandle);
 
-    if (cusparseStatus != CUSPARSE_STATUS_SUCCESS)
-    {
-        PyErr_SetString(
+    /* Get handle to the CUSPARSE context */
+    if (cusparseHandle == 0){
+        printf("create cusparse handle\\n");
+        cusparseStatus = cusparseCreate(&cusparseHandle);
+
+        if (cusparseStatus != CUSPARSE_STATUS_SUCCESS)
+        {
+            PyErr_SetString(
                 PyExc_RuntimeError,
                 "GpuDotCsrDense: cusparseCreate() failed");
-        %(fail)s
+        printf("before fail\\n");
+            %(fail)s
+        }
+        assert(cusparseHandle != 0);
     }
+    /* Get the mat description */
+    if (descr == 0){
+        printf("create cusparse desct\\n");
 
-    cusparseStatus = cusparseCreateMatDescr(&descr);
+        cusparseStatus = cusparseCreateMatDescr(&descr);
 
-    if (cusparseStatus != CUSPARSE_STATUS_SUCCESS)
-    {
-        PyErr_SetString(
+        if (cusparseStatus != CUSPARSE_STATUS_SUCCESS)
+        {
+            PyErr_SetString(
                 PyExc_RuntimeError,
                 "GpuDotCsrDense: cusparseCreateMatDescr() failed");
-        cusparseDestroy(cusparseHandle);
-        %(fail)s
-    }
+            cusparseDestroy(cusparseHandle);
+        printf("before fail\\n");
+            %(fail)s
+        }
+        assert(descr != 0);
+        cusparseStatus = cusparseSetMatType(descr,
+                             CUSPARSE_MATRIX_TYPE_GENERAL);
+        if (cusparseStatus != CUSPARSE_STATUS_SUCCESS)
+        {
+             PyErr_SetString(
+             PyExc_RuntimeError,
+                        "GpuDotCsrDense: cusparseSetMatType() failed");
+             cusparseDestroyMatDescr(descr);
+             cusparseDestroy(cusparseHandle);
+        printf("before fail\\n");
+             %(fail)s
+        }
 
-    cusparseStatus = cusparseSetMatType(descr,CUSPARSE_MATRIX_TYPE_GENERAL);
-    if (cusparseStatus != CUSPARSE_STATUS_SUCCESS)
-    {
-        PyErr_SetString(
-                PyExc_RuntimeError,
-                "GpuDotCsrDense: cusparseSetMatType() failed");
-        cusparseDestroyMatDescr(descr);
-        cusparseDestroy(cusparseHandle);
-        %(fail)s
+        cusparseStatus = cusparseSetMatIndexBase(descr,
+                             CUSPARSE_INDEX_BASE_ZERO);
+        if (cusparseStatus != CUSPARSE_STATUS_SUCCESS)
+        {
+            PyErr_SetString(
+                    PyExc_RuntimeError,
+                    "GpuDotCsrDense: cusparseSetMatIndexBase() failed");
+            cusparseDestroyMatDescr(descr);
+            cusparseDestroy(cusparseHandle);
+        printf("before fail\\n");
+            %(fail)s
+        }
     }
-
-    cusparseStatus = cusparseSetMatIndexBase(descr,CUSPARSE_INDEX_BASE_ZERO);
-    if (cusparseStatus != CUSPARSE_STATUS_SUCCESS)
-    {
-        PyErr_SetString(
-                PyExc_RuntimeError,
-                "GpuDotCsrDense: cusparseSetMatIndexBase() failed");
-        cusparseDestroyMatDescr(descr);
-        cusparseDestroy(cusparseHandle);
-        %(fail)s
-    }
-
+    //TODO reuse!
+    %(y)s->ga.ops->property(NULL, %(y)s->ga.data, NULL, GA_BUFFER_PROP_REFCNT, &refcnt);
+    printf("y refcnt=%%u\\n", refcnt);
+    usable_y->ops->property(NULL, usable_y->data, NULL, GA_BUFFER_PROP_REFCNT, &refcnt);
+    printf("usable_y refcnt=%%u\\n", refcnt);
     Py_XDECREF(%(out)s);
     %(out)s = new_GpuArray((PyObject *)&GpuArrayType,
-        GpuArray_default_context());
+        pygpu_default_context(), Py_None);
     if (%(out)s == NULL) {
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
         // new_GpuArray calls __new__ which will set an error message
         // if it returns NULL.
+        printf("before fail\\n");
         %(fail)s
     }
     //TODO: If next call commented, segfault.
     %(name)serr = GpuArray_empty(&%(out)s->ga,
-        GpuArray_default_context()->ops,
-        GpuArray_default_context()->ctx,
+        pygpu_default_context()->ops,
+        pygpu_default_context()->ctx,
         %(y)s->ga.typecode, //get_typecode((PyObject *)PyArray_DESCR(%%(name)s_tmp)),
         2,
         out_dims, //(size_t *)PyArray_DIMS(%%(inp)s),
