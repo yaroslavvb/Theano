@@ -87,6 +87,8 @@ class GpuDotCsrDense(gof.Op):
         return """
         CUcontext (*cuda_get_ctx)(void *ctx);
         CUdeviceptr (*cuda_get_ptr)(gpudata *g);
+        cusparseHandle_t cusparseHandle = 0;
+        cusparseMatDescr_t descr = 0;
         """
 
     def c_init_code(self):
@@ -101,8 +103,6 @@ class GpuDotCsrDense(gof.Op):
     const float alpha = 1;
     const float beta = 0;
 
-    cusparseHandle_t cusparseHandle = 0;
-    cusparseMatDescr_t descr = 0;
     cusparseStatus_t cusparseStatus;
     int %(name)serr;
     size_t x_shp0 = ((dtype_%(x_shape)s *)PyArray_DATA(%(x_shape)s))[0];
@@ -300,6 +300,8 @@ class GpuDotCsrDense(gof.Op):
     }
     cusparseDestroyMatDescr(descr);
     cusparseDestroy(cusparseHandle);
+    descr = 0;
+    cusparseHandle = 0;
         """ % locals()
         pass
 
