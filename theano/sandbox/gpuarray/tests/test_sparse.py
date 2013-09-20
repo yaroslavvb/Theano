@@ -97,18 +97,26 @@ B, D: 1% a 10%; tu peux essayer 5%.
     y = theano.tensor.fmatrix()
     out = theano.sparse.basic._dot(x, y)
 
-    f = theano.function([x, y], out, mode=mode_without_gpu)
-    f_gpu = theano.function([x, y], out, mode=mode_with_gpu)
-    theano.printing.debugprint(f)
-    theano.printing.debugprint(f_gpu)
-    assert any(isinstance(x.op, GpuDotCsrDense)
-               for x in f_gpu.maker.fgraph.toposort())
+    for m, n, k in [(1000, 128, 1000),
+                    (2000, 128, 2000),
+                    (4000, 128, 4000)
+    ]:
+        c = theano.compile.profiling.ProfileStats(atexit_print=False)
+        g = theano.compile.profiling.ProfileStats(atexit_print=False)
+        f = theano.function([x, y], out, mode=mode_without_gpu, profile=c)
+        f_gpu = theano.function([x, y], out, mode=mode_with_gpu, profile=g)
+        x1 = theano.sparse.tests.test_basic.sparse_random_inputs(
+            'csr', (m, k), out_dtype='float32')[1][0]
+        y1 = numpy.random.rand(k, n).astype('float32')
 
-    x1 = theano.sparse.tests.test_basic.sparse_random_inputs(
-        'csr', (4000, 4000), out_dtype='float32')[1][0]
-    y1 = numpy.random.rand(4000, 128).astype('float32')
-
-    for x_val, y_val in [(x1, y1)]:
-        res = f(x_val, y_val)
-        res_gpu = f_gpu(x_val, y_val)
-        utt.assert_allclose(res, res_gpu)
+        for x_val, y_val in [(x1, y1)]:
+            res = f(x_val, y_val)
+            for i in range(100):
+                res_gpu = f_gpu(x_val, y_val)
+                utt.assert_allclose(res, res_gpu)
+        pass
+        print m, n, k
+        c_t = c.class_time()[theano.sparse.basic.Dot]
+        g_t = g.class_time()[theano.sandbox.gpuarray.sparse.GpuDotCsrDense]
+        g_i = g.class_callcount()[theano.sandbox.gpuarray.sparse.GpuDotCsrDense]
+        print "cpu, gpu, speed up", c_t, g_t/g_i, c_t / (g_t/g_i)
