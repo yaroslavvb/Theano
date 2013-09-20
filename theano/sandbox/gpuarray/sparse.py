@@ -120,35 +120,8 @@ class GpuDotCsrDense(gof.Op):
                 " (%%d, %%d) and (%%d, %%d)",
                 x_shp0, x_shp1,
                 %(y)s->ga.dimensions[0], %(y)s->ga.dimensions[1]);
+        printf("before fail\\n");
         %(fail)s
-    }
-
-    if (!GpuArray_ISFORTRAN(&(%(y)s->ga)))
-    {
-        usable_y = &usable_y_stack;
-        %(name)serr = GpuArray_empty(usable_y,
-            pygpu_default_context()->ops,
-            pygpu_default_context()->ctx,
-            %(y)s->ga.typecode,
-            2,
-            %(y)s->ga.dimensions,
-            GA_F_ORDER);
-        if (%(name)serr != GA_NO_ERROR) {
-            PyErr_SetString(
-                PyExc_MemoryError,
-                "GpuDotCsrDense: Can't allocate device memory for transposed input.");
-        printf("before fail\\n");
-            %(fail)s
-        }
-        if (GpuArray_copy(usable_y, &(%(y)s->ga), GA_F_ORDER) != GA_NO_ERROR){
-            PyErr_SetString(
-                PyExc_ValueError,
-                "GpuDotCsrDense: call to GpuArray_copy() failed");
-        printf("before fail\\n");
-            %(fail)s
-        }
-    }else{
-        usable_y = &(%(y)s->ga);
     }
 
     /* Get handle to the CUSPARSE context */
@@ -208,11 +181,41 @@ class GpuDotCsrDense(gof.Op):
             %(fail)s
         }
     }
+
+    if (!GpuArray_ISFORTRAN(&(%(y)s->ga)))
+    {
+        usable_y = &usable_y_stack;
+        //printf("alloc usable_y\\n");
+        %(name)serr = GpuArray_empty(usable_y,
+            pygpu_default_context()->ops,
+            pygpu_default_context()->ctx,
+            %(y)s->ga.typecode,
+            2,
+            %(y)s->ga.dimensions,
+            GA_F_ORDER);
+        if (%(name)serr != GA_NO_ERROR) {
+            PyErr_SetString(
+                PyExc_MemoryError,
+                "GpuDotCsrDense: Can't allocate device memory for transposed input.");
+        printf("before fail\\n");
+            %(fail)s
+        }
+        if (GpuArray_copy(usable_y, &(%(y)s->ga), GA_F_ORDER) != GA_NO_ERROR){
+            PyErr_SetString(
+                PyExc_ValueError,
+                "GpuDotCsrDense: call to GpuArray_copy() failed");
+        printf("before fail\\n");
+            %(fail)s
+        }
+    }else{
+        usable_y = &(%(y)s->ga);
+    }
+
     //TODO reuse!
-    %(y)s->ga.ops->property(NULL, %(y)s->ga.data, NULL, GA_BUFFER_PROP_REFCNT, &refcnt);
-    printf("y refcnt=%%u\\n", refcnt);
-    usable_y->ops->property(NULL, usable_y->data, NULL, GA_BUFFER_PROP_REFCNT, &refcnt);
-    printf("usable_y refcnt=%%u\\n", refcnt);
+    //%(y)s->ga.ops->property(NULL, %(y)s->ga.data, NULL, GA_BUFFER_PROP_REFCNT, &refcnt);
+    //printf("y refcnt=%%u\\n", refcnt);
+    //usable_y->ops->property(NULL, usable_y->data, NULL, GA_BUFFER_PROP_REFCNT, &refcnt);
+    //printf("usable_y refcnt=%%u\\n", refcnt);
     Py_XDECREF(%(out)s);
     %(out)s = new_GpuArray((PyObject *)&GpuArrayType,
         pygpu_default_context(), Py_None);
@@ -294,14 +297,19 @@ class GpuDotCsrDense(gof.Op):
         %(fail)s
     }
 
-    if (usable_y != &(%(y)s->ga))
+    if (usable_y == &usable_y_stack)
     {
         GpuArray_clear(usable_y);
+        //usable_y->ops->property(NULL, usable_y->data, NULL, GA_BUFFER_PROP_REFCNT, &refcnt);
+        //printf("usable_y=%%p\\n", usable_y);
+        //printf("usable_y->ops=%%p\\n", usable_y->ops);
     }
-    cusparseDestroyMatDescr(descr);
-    cusparseDestroy(cusparseHandle);
-    descr = 0;
-    cusparseHandle = 0;
+    if (0){
+        cusparseDestroyMatDescr(descr);
+        cusparseDestroy(cusparseHandle);
+        descr = 0;
+        cusparseHandle = 0;
+    }
         """ % locals()
         pass
 
