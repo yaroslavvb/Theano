@@ -204,10 +204,6 @@ class GpuDotCsrDense(gof.Op):
     }
 
     //TODO reuse!
-    //%(y)s->ga.ops->property(NULL, %(y)s->ga.data, NULL, GA_BUFFER_PROP_REFCNT, &refcnt);
-    //printf("y refcnt=%%u\\n", refcnt);
-    //usable_y->ops->property(NULL, usable_y->data, NULL, GA_BUFFER_PROP_REFCNT, &refcnt);
-    //printf("usable_y refcnt=%%u\\n", refcnt);
     Py_XDECREF(%(out)s);
     %(out)s = new_GpuArray((PyObject *)&PyGpuArrayType,
         pygpu_default_context(), Py_None);
@@ -293,9 +289,6 @@ class GpuDotCsrDense(gof.Op):
     if (usable_y == &usable_y_stack)
     {
         GpuArray_clear(usable_y);
-        //usable_y->ops->property(NULL, usable_y->data, NULL, GA_BUFFER_PROP_REFCNT, &refcnt);
-        //printf("usable_y=%%p\\n", usable_y);
-        //printf("usable_y->ops=%%p\\n", usable_y->ops);
     }
     if (0){
         cusparseDestroyMatDescr(descr);
