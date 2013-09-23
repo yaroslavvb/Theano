@@ -213,13 +213,6 @@ class GpuDotCsrDense(gof.Op):
     if (%(y)s->ga.strides[0] != GpuArray_ITEMSIZE(&%(y)s->ga))
     {
         usable_y = &usable_y_stack;
-        %(name)serr = GpuArray_empty(usable_y,
-            pygpu_default_context()->ops,
-            pygpu_default_context()->ctx,
-            %(y)s->ga.typecode,
-            2,
-            %(y)s->ga.dimensions,
-            GA_F_ORDER);
         if (%(name)serr != GA_NO_ERROR) {
             PyErr_SetString(
                 PyExc_MemoryError,
