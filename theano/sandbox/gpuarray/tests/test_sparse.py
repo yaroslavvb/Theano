@@ -129,31 +129,71 @@ E comme nxn
 
 A, E: dense
 B, D: 1% a 10%; tu peux essayer 5%.
+
+
+
+dot(csr, dense)
+%sparse m n   k    cpu   gpu   speed up
+<function ascontiguousarray at 0x129bb90>
+0.01 1000 128 1000 0.002 0.007 0.237
+0.05 1000 128 1000 0.007 0.009 0.736
+0.10 1000 128 1000 0.015 0.008 1.939
+0.50 1000 128 1000 0.074 0.011 6.771
+0.01 2000 128 2000 0.006 0.008 0.733
+0.05 2000 128 2000 0.028 0.010 2.810
+0.10 2000 128 2000 0.054 0.015 3.559
+0.50 2000 128 2000 0.286 0.018 16.058
+0.01 4000 128 4000 0.023 0.010 2.216
+0.05 4000 128 4000 0.110 0.021 5.330
+0.10 4000 128 4000 0.219 0.032 6.829
+0.50 4000 128 4000 1.067 0.058 18.397
+<function asfortranarray at 0x2594c08>
+0.01 1000 128 1000 0.002 0.000 4.751
+0.05 1000 128 1000 0.007 0.001 7.421
+0.10 1000 128 1000 0.014 0.002 9.196
+0.50 1000 128 1000 0.070 0.003 25.453
+0.01 2000 128 2000 0.006 0.001 4.916
+0.05 2000 128 2000 0.027 0.004 7.153
+0.10 2000 128 2000 0.055 0.006 9.474
+0.50 2000 128 2000 0.268 0.010 27.149
+0.01 4000 128 4000 0.025 0.004 6.196
+0.05 4000 128 4000 0.119 0.015 8.042
+0.10 4000 128 4000 0.224 0.026 8.571
+0.50 4000 128 4000 1.122 0.049 22.706
+
 """
     x = theano.sparse.csr_matrix(dtype='float32')
     y = theano.tensor.fmatrix()
     out = theano.sparse.basic._dot(x, y)
 
-    for m, n, k in [(1000, 128, 1000),
-                    (2000, 128, 2000),
-                    (4000, 128, 4000)
-    ]:
-        c = theano.compile.profiling.ProfileStats(atexit_print=False)
-        g = theano.compile.profiling.ProfileStats(atexit_print=False)
-        f = theano.function([x, y], out, mode=mode_without_gpu, profile=c)
-        f_gpu = theano.function([x, y], out, mode=mode_with_gpu, profile=g)
-        x1 = theano.sparse.tests.test_basic.sparse_random_inputs(
-            'csr', (m, k), out_dtype='float32')[1][0]
-        y1 = numpy.random.rand(k, n).astype('float32')
+    print "dot(csr, dense)"
 
-        for x_val, y_val in [(x1, y1)]:
-            res = f(x_val, y_val)
-            for i in range(100):
-                res_gpu = f_gpu(x_val, y_val)
-                utt.assert_allclose(res, res_gpu)
-        pass
-        print m, n, k
-        c_t = c.class_time()[theano.sparse.basic.Dot]
-        g_t = g.class_time()[theano.sandbox.gpuarray.sparse.GpuDotCsrDense]
-        g_i = g.class_callcount()[theano.sandbox.gpuarray.sparse.GpuDotCsrDense]
-        print "cpu, gpu, speed up", c_t, g_t/g_i, c_t / (g_t/g_i)
+    print "%sparse m n   k    cpu   gpu   speed up"
+    for order in [numpy.ascontiguousarray, numpy.asfortranarray]:
+        print order
+        for m, n, k in [
+            (1000, 128, 1000),
+            (2000, 128, 2000),
+            #(4000, 128, 4000)
+        ]:
+            for p in [0.01, 0.05, 0.1, 0.5]:
+                c = theano.compile.profiling.ProfileStats(atexit_print=False)
+                g = theano.compile.profiling.ProfileStats(atexit_print=False)
+                f = theano.function([x, y], out,
+                                    mode=mode_without_gpu, profile=c)
+                f_gpu = theano.function([x, y], out,
+                                        mode=mode_with_gpu, profile=g)
+                x1 = theano.sparse.tests.test_basic.sparse_random_inputs(
+                    'csr', (m, k), out_dtype='float32', p=p)[1][0]
+                y1 = numpy.random.rand(k, n).astype('float32')
+                y1 = order(y1)
+
+                res = f(x1, y1)
+                for i in range(100):
+                    res_gpu = f_gpu(x1, y1)
+                    utt.assert_allclose(res, res_gpu)
+                c_t = c.class_time()[theano.sparse.basic.Dot]
+                g_t = g.class_time()[GpuDotCsrDense]
+                g_i = g.class_callcount()[GpuDotCsrDense]
+                print "%.2f %d %d %d %.3f %.3f %.3f" % (
+                    p, m, n, k, c_t, g_t/g_i, c_t / (g_t/g_i))
