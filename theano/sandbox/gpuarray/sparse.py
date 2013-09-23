@@ -120,7 +120,6 @@ class GpuDotCsrDense(gof.Op):
                 " (%%d, %%d) and (%%d, %%d)",
                 x_shp0, x_shp1,
                 %(y)s->ga.dimensions[0], %(y)s->ga.dimensions[1]);
-        printf("before fail\\n");
         %(fail)s
     }
 
@@ -134,7 +133,6 @@ class GpuDotCsrDense(gof.Op):
             PyErr_SetString(
                 PyExc_RuntimeError,
                 "GpuDotCsrDense: cusparseCreate() failed");
-        printf("before fail\\n");
             %(fail)s
         }
         assert(cusparseHandle != 0);
@@ -151,7 +149,6 @@ class GpuDotCsrDense(gof.Op):
                 PyExc_RuntimeError,
                 "GpuDotCsrDense: cusparseCreateMatDescr() failed");
             cusparseDestroy(cusparseHandle);
-        printf("before fail\\n");
             %(fail)s
         }
         assert(descr != 0);
@@ -164,7 +161,6 @@ class GpuDotCsrDense(gof.Op):
                         "GpuDotCsrDense: cusparseSetMatType() failed");
              cusparseDestroyMatDescr(descr);
              cusparseDestroy(cusparseHandle);
-        printf("before fail\\n");
              %(fail)s
         }
 
@@ -177,7 +173,6 @@ class GpuDotCsrDense(gof.Op):
                     "GpuDotCsrDense: cusparseSetMatIndexBase() failed");
             cusparseDestroyMatDescr(descr);
             cusparseDestroy(cusparseHandle);
-        printf("before fail\\n");
             %(fail)s
         }
     }
@@ -185,7 +180,6 @@ class GpuDotCsrDense(gof.Op):
     if (!GpuArray_ISFORTRAN(&(%(y)s->ga)))
     {
         usable_y = &usable_y_stack;
-        //printf("alloc usable_y\\n");
         %(name)serr = GpuArray_empty(usable_y,
             pygpu_default_context()->ops,
             pygpu_default_context()->ctx,
@@ -197,14 +191,12 @@ class GpuDotCsrDense(gof.Op):
             PyErr_SetString(
                 PyExc_MemoryError,
                 "GpuDotCsrDense: Can't allocate device memory for transposed input.");
-        printf("before fail\\n");
             %(fail)s
         }
         if (GpuArray_copy(usable_y, &(%(y)s->ga), GA_F_ORDER) != GA_NO_ERROR){
             PyErr_SetString(
                 PyExc_ValueError,
                 "GpuDotCsrDense: call to GpuArray_copy() failed");
-        printf("before fail\\n");
             %(fail)s
         }
     }else{
@@ -224,7 +216,6 @@ class GpuDotCsrDense(gof.Op):
         cusparseDestroy(cusparseHandle);
         // new_GpuArray calls __new__ which will set an error message
         // if it returns NULL.
-        printf("before fail\\n");
         %(fail)s
     }
     //TODO: If next call commented, segfault.
