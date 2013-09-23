@@ -182,6 +182,7 @@ class GpuDotCsrDense(gof.Op):
                 PyExc_RuntimeError,
                 "GpuDotCsrDense: cusparseCreateMatDescr() failed");
             cusparseDestroy(cusparseHandle);
+            cusparseHandle = 0;
             %(fail)s
         }
         assert(descr != 0);
@@ -194,6 +195,8 @@ class GpuDotCsrDense(gof.Op):
                         "GpuDotCsrDense: cusparseSetMatType() failed");
              cusparseDestroyMatDescr(descr);
              cusparseDestroy(cusparseHandle);
+             descr = 0;
+             cusparseHandle = 0;
              %(fail)s
         }
 
@@ -206,6 +209,8 @@ class GpuDotCsrDense(gof.Op):
                     "GpuDotCsrDense: cusparseSetMatIndexBase() failed");
             cusparseDestroyMatDescr(descr);
             cusparseDestroy(cusparseHandle);
+             descr = 0;
+             cusparseHandle = 0;
             %(fail)s
         }
     }
@@ -236,6 +241,8 @@ class GpuDotCsrDense(gof.Op):
     if (%(out)s == NULL) {
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
+        descr = 0;
+        cusparseHandle = 0;
         // new_GpuArray calls __new__ which will set an error message
         // if it returns NULL.
         %(fail)s
@@ -251,6 +258,8 @@ class GpuDotCsrDense(gof.Op):
     if (%(name)serr != GA_NO_ERROR) {
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
+        descr = 0;
+        cusparseHandle = 0;
         Py_CLEAR(%(out)s);
         PyErr_SetString(
             PyExc_MemoryError,
@@ -306,6 +315,8 @@ class GpuDotCsrDense(gof.Op):
         Py_CLEAR(%(out)s);
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
+        descr = 0;
+        cusparseHandle = 0;
         PyErr_SetString(
                 PyExc_RuntimeError,
                 "GpuDotCsrDense: cudaGetLastError() failed after cusparseScsrmm()");
@@ -315,12 +326,6 @@ class GpuDotCsrDense(gof.Op):
     if (usable_y == &usable_y_stack)
     {
         GpuArray_clear(usable_y);
-    }
-    if (0){
-        cusparseDestroyMatDescr(descr);
-        cusparseDestroy(cusparseHandle);
-        descr = 0;
-        cusparseHandle = 0;
     }
         """ % locals()
         pass
