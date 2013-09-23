@@ -115,6 +115,29 @@ def test_local_gpu_dot_csr_dense():
         utt.assert_allclose(res, res_gpu)
 
 
+def test_dot_dense_csc():
+    x = theano.tensor.fmatrix()
+    y = theano.sparse.csc_matrix(dtype='float32')
+    out = theano.sparse.basic._dot(x, y)
+
+    f = theano.function([x, y], out, mode=mode_without_gpu)
+    f_gpu = theano.function([x, y], out, mode=mode_with_gpu)
+    theano.printing.debugprint(f)
+    theano.printing.debugprint(f_gpu)
+    assert any(isinstance(x.op, GpuDotCsrDense)
+               for x in f_gpu.maker.fgraph.toposort())
+
+    x1 = numpy.random.rand(3, 4).astype('float32')
+    x1 = numpy.asfortranarray(x1)
+    y1 = theano.sparse.tests.test_basic.sparse_random_inputs(
+        'csc', (4, 5), out_dtype='float32')[1][0]
+
+    for x_val, y_val in [(x1, y1)]:
+        res = f(x_val, y_val)
+        res_gpu = f_gpu(x_val, y_val)
+        utt.assert_allclose(res, res_gpu)
+
+
 def speed():
     u"""
      A dense * B sparse

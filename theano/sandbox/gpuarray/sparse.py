@@ -354,7 +354,10 @@ class GpuDotCsrDense(gof.Op):
 @register_opt()
 @gof.local_optimizer([sparse.basic._dot])
 def local_gpu_dot_csr_dense(node):
-    # check for elemwise(..., host_from_gpu, ...)
+    """
+    move to gpu sparse.Dot(csr, dense) and sparse.Dot(dense, csc)
+    """
+    # check for sparse.Dot(csr, dense)
     if (isinstance(node.op, sparse.Dot) and
         _is_sparse_variable(node.inputs[0]) and
         not _is_sparse_variable(node.inputs[1])):
@@ -371,4 +374,21 @@ def local_gpu_dot_csr_dense(node):
             b = gpu_from_host(b)
             out = GpuDotCsrDense()(a_val, a_ind, a_ptr, a_shape, b)
             return [host_from_gpu(out)]
+    # check for sparse.Dot(csc, dense)
+    elif (isinstance(node.op, sparse.Dot) and
+        _is_sparse_variable(node.inputs[1]) and
+        not _is_sparse_variable(node.inputs[0])):
+        if not any([i.owner and
+                    i.owner.op == host_from_gpu
+                    for i in node.inputs]):
+            return False
+
+        a, b = node.inputs
+        if (b.type.format == 'csc' and a.dtype == b.dtype
+            and a.dtype == 'float32'):
+            a = gpu_from_host(a.T)
+            b_val, b_ind, b_ptr, b_shape = sparse.csm_properties(b.T)
+            # The .T introduce the host_from_gpu
+            out = GpuDotCsrDense()(b_val, b_ind, b_ptr, b_shape, a).T
+            return [out]
     return False
