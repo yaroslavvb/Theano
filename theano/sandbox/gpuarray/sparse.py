@@ -93,7 +93,40 @@ class GpuDotCsrDense(gof.Op):
 
     def c_init_code(self):
         return ['cuda_get_ctx = (CUcontext (*)(void *ctx))compyte_get_extension("cuda_get_ctx");',
-                'cuda_get_ptr = (CUdeviceptr (*)(gpudata *g))compyte_get_extension("cuda_get_ptr");']
+                'cuda_get_ptr = (CUdeviceptr (*)(gpudata *g))compyte_get_extension("cuda_get_ptr");',
+"""
+        // We try to init it here to don't init it in the
+        //Theano fct call to don't mess with profiling.
+        // But as we can't raise error here, we try again
+        // in c_code, to raise the good error.
+        cusparseStatus_t cusparseStatus;
+        cusparseStatus = cusparseCreate(&cusparseHandle);
+        if (cusparseStatus == CUSPARSE_STATUS_SUCCESS) {
+          assert(cusparseHandle != 0);
+          /* Get the mat description */
+          cusparseStatus = cusparseCreateMatDescr(&descr);
+          if (cusparseStatus == CUSPARSE_STATUS_SUCCESS) {
+            assert(descr != 0);
+            cusparseStatus = cusparseSetMatType(descr,
+                             CUSPARSE_MATRIX_TYPE_GENERAL);
+            if (cusparseStatus == CUSPARSE_STATUS_SUCCESS) {
+              cusparseStatus = cusparseSetMatIndexBase(descr,
+                             CUSPARSE_INDEX_BASE_ZERO);
+              if (cusparseStatus != CUSPARSE_STATUS_SUCCESS) {
+                descr = 0;
+              }
+            }else{
+                descr = 0;
+            }
+          }else{
+            descr = 0;
+          }
+        }else{
+          cusparseHandle = 0;
+        }
+                """
+
+        ]
 
     def c_code(self, node, name, inputs, outputs, sub):
         x_val, x_ind, x_ptr, x_shape, y = inputs
