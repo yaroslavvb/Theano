@@ -301,10 +301,30 @@ class GpuDotCsrDense(gof.Op):
         Py_CLEAR(%(out)s);
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
+        descr = 0;
+        cusparseHandle = 0;
+        char * err_msg;
+        if (cusparseStatus == CUSPARSE_STATUS_NOT_INITIALIZED){
+            err_msg = "CUSPARSE_STATUS_NOT_INITIALIZED";
+        }else if (cusparseStatus == CUSPARSE_STATUS_ALLOC_FAILED){
+            err_msg = "CUSPARSE_STATUS_ALLOC_FAILED";
+        }else if (cusparseStatus == CUSPARSE_STATUS_INVALID_VALUE){
+            err_msg = "CUSPARSE_STATUS_INVALID_VALUE";
+        }else if (cusparseStatus == CUSPARSE_STATUS_ARCH_MISMATCH){
+            err_msg = "CUSPARSE_STATUS_ARCH_MISMATCH";
+        }else if (cusparseStatus == CUSPARSE_STATUS_EXECUTION_FAILED){
+            err_msg = "CUSPARSE_STATUS_EXECUTION_FAILED";
+        }else if (cusparseStatus == CUSPARSE_STATUS_INTERNAL_ERROR){
+            err_msg = "CUSPARSE_STATUS_INTERNAL_ERROR";
+        }else if (cusparseStatus == CUSPARSE_STATUS_MATRIX_TYPE_NOT_SUPPORTED){
+            err_msg = "CUSPARSE_STATUS_MATRIX_TYPE_NOT_SUPPORTED";
+        }else{
+            err_msg = "Unknow error code";
+        }
         PyErr_Format(
                 PyExc_RuntimeError,
-                "GpuDotCsrDense: cusparseScsrmm[2]() returned status %%d",
-                cusparseStatus);
+                "GpuDotCsrDense: cusparseScsrmm[2]() returned status %%d (%%s)",
+                cusparseStatus, err_msg);
         %(fail)s
     }
     //TODO remove!!!
