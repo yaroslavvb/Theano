@@ -217,7 +217,7 @@ class GpuDotCsrDense(gof.Op):
     //usable_y->ops->property(NULL, usable_y->data, NULL, GA_BUFFER_PROP_REFCNT, &refcnt);
     //printf("usable_y refcnt=%%u\\n", refcnt);
     Py_XDECREF(%(out)s);
-    %(out)s = new_GpuArray((PyObject *)&GpuArrayType,
+    %(out)s = new_GpuArray((PyObject *)&PyGpuArrayType,
         pygpu_default_context(), Py_None);
     if (%(out)s == NULL) {
         cusparseDestroyMatDescr(descr);
