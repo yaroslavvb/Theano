@@ -176,8 +176,8 @@ class GpuDotCsrDense(gof.Op):
             %(fail)s
         }
     }
-
-    if (!GpuArray_ISFORTRAN(&(%(y)s->ga)))
+    //if nvcc >= 5.5, use cusparseScsrmm2 call.
+    if (%(y)s->ga.strides[0] != GpuArray_ITEMSIZE(&%(y)s->ga))
     {
         usable_y = &usable_y_stack;
         %(name)serr = GpuArray_empty(usable_y,
@@ -244,7 +244,8 @@ class GpuDotCsrDense(gof.Op):
             (int*)cuda_get_ptr(%(x_ptr)s->ga.data), // TODO check that the input dtype is equiv to c int.
             (int*)cuda_get_ptr(%(x_ind)s->ga.data),
             (float*)cuda_get_ptr(usable_y->data),
-            x_shp1, &beta, // ldb TODO: now it suppose y is f contiguous
+            usable_y->strides[1]/GpuArray_ITEMSIZE(usable_y), // ldb
+            &beta,
             (float*)cuda_get_ptr(%(out)s->ga.data),
             out_dims[0]); //ldc suppose out is f contiguous
 #else
@@ -257,7 +258,8 @@ class GpuDotCsrDense(gof.Op):
             (int*)cuda_get_ptr(%(x_ptr)s->ga.data), // TODO check that the input dtype is equiv to c int.
             (int*)cuda_get_ptr(%(x_ind)s->ga.data),
             (float*)cuda_get_ptr(usable_y->data),
-            x_shp1, &beta, // ldbTODO: now it suppose y is c contiguous
+            usable_y->ga.strides[1]/GpuArray_ITEMSIZE(usable_y), // ldb
+            &beta,
             (float*)cuda_get_ptr(%(out)s->ga.data),
             out_dims[0]); //ldc suppose out is f contiguous
 #endif

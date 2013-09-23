@@ -77,6 +77,43 @@ def test_local_gpu_dot_csr_dense():
     except ValueError:
         pass
 
+    # Test case where the input is f order/subsampled
+    out = theano.sparse.basic._dot(x, y.T)
+
+    f = theano.function([x, y], out, mode=mode_without_gpu)
+    f_gpu = theano.function([x, y], out, mode=mode_with_gpu)
+    theano.printing.debugprint(f)
+    theano.printing.debugprint(f_gpu)
+    assert any(isinstance(x.op, GpuDotCsrDense)
+               for x in f_gpu.maker.fgraph.toposort())
+
+    y1 = y1.T
+    y1 = numpy.ascontiguousarray(y1)
+
+    for x_val, y_val in [(x1, y1)]:
+        res = f(x_val, y_val)
+        res_gpu = f_gpu(x_val, y_val)
+        utt.assert_allclose(res, res_gpu)
+
+    # Test case where the input is f order and subsampled
+    out = theano.sparse.basic._dot(x, y.T[:, ::2])
+
+    f = theano.function([x, y], out, mode=mode_without_gpu)
+    f_gpu = theano.function([x, y], out, mode=mode_with_gpu)
+    theano.printing.debugprint(f)
+    theano.printing.debugprint(f_gpu)
+    assert any(isinstance(x.op, GpuDotCsrDense)
+               for x in f_gpu.maker.fgraph.toposort())
+
+    y1 = numpy.random.rand(4, 10).astype('float32')
+    y1 = y1.T
+    y1 = numpy.ascontiguousarray(y1)
+
+    for x_val, y_val in [(x1, y1)]:
+        res = f(x_val, y_val)
+        res_gpu = f_gpu(x_val, y_val)
+        utt.assert_allclose(res, res_gpu)
+
 
 def speed():
     u"""
