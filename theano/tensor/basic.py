@@ -1150,6 +1150,7 @@ class Shape(Op):
     def c_code(self, node, nodename, inp, out, sub):
         x, = inp
         z, = out
+        fail = sub['fail']
         if isinstance(node.inputs[0].type, TensorType):
             return """
             npy_intp shape[] = {PyArray_NDIM(%(x)s)};
@@ -1157,6 +1158,10 @@ class Shape(Op):
             {
                 Py_XDECREF(%(z)s);
                 %(z)s = (PyArrayObject*) PyArray_SimpleNew(1, shape, NPY_INT64);
+            }
+            if(NULL == %(z)s){
+                PyErr_SetString(PyExc_MemoryError, "alloc failed");
+                %(fail)s
             }
             for(int i=0;i<shape[0];i++)
             {
@@ -1170,7 +1175,7 @@ class Shape(Op):
             return super(Shape, self).c_code(node, nodename, (x,), (out,), sub)
 
     def c_code_cache_version(self):
-        return (1,)
+        return (2,)
 
 @constructor
 def old_shape(a):
