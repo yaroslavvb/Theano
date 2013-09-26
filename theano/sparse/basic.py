@@ -791,6 +791,7 @@ class Cast(gof.op.Op):
     """
 
     def __init__(self, out_type):
+        assert out_type in all_dtypes
         self.out_type = out_type
 
     def __eq__(self, other):
