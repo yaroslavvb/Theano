@@ -3426,8 +3426,15 @@ class Usmm(gof.op.Op):
 
     :return: The dense matrix resulting from `alpha` * `x` `y` + `z`.
 
+    :note: You *shouldn't* need to insert it yourself!
+        - There is optimization that transform a
+          :class:`Dot <theano.sparse.basic.Dot>` to ``Usmm`` when possible.
+        - This op is the equivalent of gemm for sparse dot.
+        - There is no grad implemented for this op and this is not needed as
+          you don't insert it yourself.
     :note: The grad is not implemented for this op.
-    :note: At least one of `x` or `y` must be a sparse matrix.
+    :note: At least one of `x` or `y` must be a sparse matrix,
+           the other can be sparse of dense.
     """
 
     # We don't implement the infer_shape as it is
