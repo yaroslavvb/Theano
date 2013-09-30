@@ -2,7 +2,7 @@ import numpy
 import scipy.sparse
 
 import theano
-from theano import gof, sparse
+from theano import config, gof, sparse
 from theano.gof.python25 import any
 import theano.sandbox.gpuarray as gpuarray
 from theano.sandbox.gpuarray.basic_ops import (
@@ -13,7 +13,7 @@ from theano.sparse.basic import _is_sparse_variable
 
 class GpuDotCsrDense(gof.Op):
     """
-    Sparse version of dot(sparse csr, dense)
+    Gpu version of: dot(sparse csr, dense) -> dense
 
     call CUSPARSE
 
@@ -34,9 +34,13 @@ class GpuDotCsrDense(gof.Op):
         x_ptr = as_gpuarray_variable(x_ptr)
         x_shape = theano.tensor.as_tensor_variable(x_shape)
         y = as_gpuarray_variable(y)
+        assert numpy.intc == numpy.int32, ("We suppose that the c type 'int'"
+                                           " is equivalent to int32, but this"
+                                           " is false!")
         assert x_val.dtype == 'float32' and x_val.ndim == 1
         assert x_ind.dtype == 'int32' and x_ind.ndim == 1
         assert x_ptr.dtype == 'int32' and x_ptr.ndim == 1
+        assert x_shape.dtype == 'int32' and x_shape.ndim == 1
         assert y.dtype == 'float32' and y.ndim == 2
 
         bz = (False, y.type.broadcastable[1])
@@ -132,7 +136,7 @@ class GpuDotCsrDense(gof.Op):
         x_val, x_ind, x_ptr, x_shape, y = inputs
         out, = outputs
         fail = sub['fail']
-        return """
+        code = """
     const float alpha = 1;
     const float beta = 0;
 
@@ -272,7 +276,7 @@ class GpuDotCsrDense(gof.Op):
             out_dims[0], out_dims[1], x_shp1,
             %(x_val)s->ga.dimensions[0], &alpha, descr,
             (float*) cuda_get_ptr(%(x_val)s->ga.data),
-            (int*)cuda_get_ptr(%(x_ptr)s->ga.data), // TODO check that the input dtype is equiv to c int.
+            (int*)cuda_get_ptr(%(x_ptr)s->ga.data),
             (int*)cuda_get_ptr(%(x_ind)s->ga.data),
             (float*)cuda_get_ptr(usable_y->data),
             usable_y->strides[1]/GpuArray_ITEMSIZE(usable_y), // ldb
@@ -286,7 +290,7 @@ class GpuDotCsrDense(gof.Op):
             out_dims[0], out_dims[1], x_shp1,
             %(x_val)s->ga.dimensions[0], &alpha, descr,
             (float*) cuda_get_ptr(%(x_val)s->ga.data),
-            (int*)cuda_get_ptr(%(x_ptr)s->ga.data), // TODO check that the input dtype is equiv to c int.
+            (int*)cuda_get_ptr(%(x_ptr)s->ga.data),
             (int*)cuda_get_ptr(%(x_ind)s->ga.data),
             (float*)cuda_get_ptr(usable_y->data),
             usable_y->ga.strides[1]/GpuArray_ITEMSIZE(usable_y), // ldb
@@ -348,7 +352,7 @@ class GpuDotCsrDense(gof.Op):
         GpuArray_clear(usable_y);
     }
         """ % locals()
-        pass
+        return code
 
 
 @register_opt()
