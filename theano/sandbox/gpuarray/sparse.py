@@ -65,13 +65,10 @@ class GpuDotCsrDense(gof.Op):
         return ['<cuda_runtime.h>', '<cusparse_v2.h>', '<compyte/extension.h>', 'cuda.h'] # cuda.h?
 
     def c_libraries(self):
-        return ['cusparse', 'cudart'] #        return ['cudart', 'cuda']
+        return ['cusparse', 'cudart']
 
     # code_cache_version is built by subclasses from
     #  build_gemm_version
-
-    def _c_compile_args(self):
-        return ldflags(libs=False, flags=True)
 
     def _c_header_dirs(self):
         ret = []
@@ -252,13 +249,12 @@ class GpuDotCsrDense(gof.Op):
         %(fail)s
     }
     //TODO: If next call commented, segfault.
+
     %(name)serr = GpuArray_empty(&%(out)s->ga,
         pygpu_default_context()->ops,
         pygpu_default_context()->ctx,
-        %(y)s->ga.typecode, //get_typecode((PyObject *)PyArray_DESCR(%%(name)s_tmp)),
-        2,
-        out_dims, //(size_t *)PyArray_DIMS(%%(inp)s),
-        GA_F_ORDER);
+        %(y)s->ga.typecode,
+        2, out_dims, GA_F_ORDER);
     if (%(name)serr != GA_NO_ERROR) {
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
@@ -298,7 +294,6 @@ class GpuDotCsrDense(gof.Op):
             (float*)cuda_get_ptr(%(out)s->ga.data),
             out_dims[0]); //ldc suppose out is f contiguous
 #endif
-    //cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, nz, &alpha, descr, d_val, d_row, d_col, d_p, &beta, d_Ax);
 
     if (cusparseStatus != CUSPARSE_STATUS_SUCCESS)
     {
@@ -331,9 +326,13 @@ class GpuDotCsrDense(gof.Op):
                 cusparseStatus, err_msg);
         %(fail)s
     }
+        """ % locals()
+        if config.gpuarray.sync:
+            code += "GpuArray_sync(%(out)s);" % locals()
+        code += """
     //TODO remove!!!
     cudaThreadSynchronize();
-    //CNDA_THREAD_SYNC;
+
     if (cudaSuccess != cudaGetLastError())
     {
         Py_CLEAR(%(out)s);
