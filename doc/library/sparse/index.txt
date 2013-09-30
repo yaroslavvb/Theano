@@ -198,7 +198,7 @@ List of Implemented Operations
       :func:`dot <theano.sparse.basic.dot>`.
 
         - The grad implemented is regular.
-        - No C code for perform and no C code for grad.
+        - No C code for perform and C code for grad via `Usmm <theano.sparse.basic.Usmm>`.
         - Return a dense for perform and a dense for grad.
     - :class:`StructuredDot <theano.sparse.basic.StructuredDot>`
       and :func:`structured_dot <theano.sparse.basic.structured_dot>`.
