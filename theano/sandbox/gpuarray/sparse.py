@@ -358,10 +358,10 @@ class GpuDotCsrDense(gof.Op):
 @gof.local_optimizer([sparse.basic._dot])
 def local_gpu_dot_csr_dense(node):
     """
-    move to gpu sparse.Dot(csr, dense) and sparse.Dot(dense, csc)
+    move to gpu sparse.[Structured]Dot(csr, dense) and sparse.Dot(dense, csc)
     """
     # check for sparse.Dot(csr, dense)
-    if (isinstance(node.op, sparse.Dot) and
+    if (isinstance(node.op, (sparse.Dot, sparse.StructuredDot)) and
         _is_sparse_variable(node.inputs[0]) and
         not _is_sparse_variable(node.inputs[1])):
         if not any([i.owner and
@@ -377,7 +377,7 @@ def local_gpu_dot_csr_dense(node):
             b = gpu_from_host(b)
             out = GpuDotCsrDense()(a_val, a_ind, a_ptr, a_shape, b)
             return [host_from_gpu(out)]
-    # check for sparse.Dot(csc, dense)
+    # check for sparse.Dot(dense, csc)
     elif (isinstance(node.op, sparse.Dot) and
         _is_sparse_variable(node.inputs[1]) and
         not _is_sparse_variable(node.inputs[0])):

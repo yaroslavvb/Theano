@@ -81,40 +81,47 @@ def te_dot(sym_inputs, out, op, inputs, wrong_inputs):
 def test_local_gpu_dot_csr_dense():
     x = theano.sparse.csr_matrix(dtype='float32')
     y = theano.tensor.fmatrix()
-    out = theano.sparse.basic._dot(x, y)
+    for op in [
+        theano.sparse.basic._dot,
+        theano.sparse.basic.structured_dot
+    ]:
+        out = op(x, y)
+        x1 = theano.sparse.tests.test_basic.sparse_random_inputs(
+            'csr', (3, 4), out_dtype='float32')[1][0]
+        y1 = numpy.random.rand(4, 5).astype('float32')
+        y1 = numpy.asfortranarray(y1)
+        y_val = numpy.random.rand(5, 5).astype('float32')
+        te_dot([x, y], out, GpuDotCsrDense, [x1, y1], [x1, y_val])
 
-    x1 = theano.sparse.tests.test_basic.sparse_random_inputs(
-        'csr', (3, 4), out_dtype='float32')[1][0]
-    y1 = numpy.random.rand(4, 5).astype('float32')
-    y1 = numpy.asfortranarray(y1)
-    y_val = numpy.random.rand(5, 5).astype('float32')
-    te_dot([x, y], out, GpuDotCsrDense, [x1, y1], [x1, y_val])
+        # Test case where the input is f order
+        out = op(x, y.T)
+        y1 = y1.T
+        y1 = numpy.ascontiguousarray(y1)
+        te_dot([x, y], out, GpuDotCsrDense, [x1, y1], [x1, y_val])
 
-    # Test case where the input is f order
-    out = theano.sparse.basic._dot(x, y.T)
-    y1 = y1.T
-    y1 = numpy.ascontiguousarray(y1)
-    te_dot([x, y], out, GpuDotCsrDense, [x1, y1], [x1, y_val])
-
-    # Test case where the input is f order and subsampled
-    out = theano.sparse.basic._dot(x, y.T[:, ::2])
-    y1 = numpy.random.rand(4, 10).astype('float32')
-    y1 = y1.T
-    y1 = numpy.ascontiguousarray(y1)
-    te_dot([x, y], out, GpuDotCsrDense, [x1, y1], [x1, y_val])
+        # Test case where the input is f order and subsampled
+        out = op(x, y.T[:, ::2])
+        y1 = numpy.random.rand(4, 10).astype('float32')
+        y1 = y1.T
+        y1 = numpy.ascontiguousarray(y1)
+        te_dot([x, y], out, GpuDotCsrDense, [x1, y1], [x1, y_val])
 
 
 def test_dot_dense_csc():
     x = theano.tensor.fmatrix()
     y = theano.sparse.csc_matrix(dtype='float32')
-    out = theano.sparse.basic._dot(x, y)
+    for op in [
+        theano.sparse.basic._dot,
+        theano.sparse.basic.structured_dot
+    ]:
+        out = op(x, y)
 
-    x1 = numpy.random.rand(3, 4).astype('float32')
-    x1 = numpy.asfortranarray(x1)
-    y1 = theano.sparse.tests.test_basic.sparse_random_inputs(
-        'csc', (4, 5), out_dtype='float32')[1][0]
-    x_val = numpy.random.rand(5, 5).astype('float32')
-    te_dot([x, y], out, GpuDotCsrDense, [x1, y1], [x_val, y1])
+        x1 = numpy.random.rand(3, 4).astype('float32')
+        x1 = numpy.asfortranarray(x1)
+        y1 = theano.sparse.tests.test_basic.sparse_random_inputs(
+            'csc', (4, 5), out_dtype='float32')[1][0]
+        x_val = numpy.random.rand(5, 5).astype('float32')
+        te_dot([x, y], out, GpuDotCsrDense, [x1, y1], [x_val, y1])
 
 
 def test_local_gpu_dot_csr_csr_csr():
