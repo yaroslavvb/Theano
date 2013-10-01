@@ -3455,13 +3455,11 @@ class Usmm(gof.op.Op):
             # We should use Dot22 and Gemm in that case.
             raise TypeError(x)
 
+        alpha = tensor.as_tensor_variable(alpha, ndim=0)
+        z = tensor.as_tensor_variable(z, ndim=2)
         dtype_out = scalar.upcast(alpha.type.dtype, x.type.dtype,
                                   y.type.dtype, z.type.dtype)
-        alpha = tensor.as_tensor_variable(alpha)
-        z = tensor.as_tensor_variable(z)
 
-        assert z.ndim == 2
-        assert alpha.type.broadcastable == (True,) * alpha.ndim
         if not _is_sparse_variable(x):
             x = tensor.as_tensor_variable(x)
             assert x.ndim == 2

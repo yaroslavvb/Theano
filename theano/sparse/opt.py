@@ -448,8 +448,8 @@ def local_structured_dot(node):
 class UsmmCscDense(gof.Op):
     """Performs the expression is `alpha` * `x` `y` + `z`.
 
-    :param x: Matrix variable.
-    :param y: Matrix variable.
+    :param x: Sparse matrix in csc format.
+    :param y: Dense matrix.
     :param z: Dense matrix.
     :param alpha: A tensor scalar.
 
@@ -478,20 +478,16 @@ class UsmmCscDense(gof.Op):
         return hash(type(self)) ^ self.inplace
 
     def make_node(self, alpha, x_val, x_ind, x_ptr, x_nrows, y, z):
-        alpha = tensor.as_tensor_variable(alpha)
-        x_val = tensor.as_tensor_variable(x_val)
-        x_ind = tensor.as_tensor_variable(x_ind)
-        x_ptr = tensor.as_tensor_variable(x_ptr)
-        x_nrows = tensor.as_tensor_variable(x_nrows)
-        y = tensor.as_tensor_variable(y)
-        z = tensor.as_tensor_variable(z)
+        alpha = tensor.as_tensor_variable(alpha, ndim=0)
+        x_val = tensor.as_tensor_variable(x_val, ndim=1)
+        x_ind = tensor.as_tensor_variable(x_ind, ndim=1)
+        x_ptr = tensor.as_tensor_variable(x_ptr, ndim=1)
+        x_nrows = tensor.as_tensor_variable(x_nrows, ndim=0)
+        y = tensor.as_tensor_variable(y, ndim=2)
+        z = tensor.as_tensor_variable(z, ndim=2)
         assert x_ind.dtype == 'int32'
         assert x_ptr.dtype == 'int32'
         assert x_nrows.dtype == 'int32'
-        assert alpha.ndim == 2 and alpha.type.broadcastable == (True, True)
-        assert x_val.ndim == 1
-        assert y.ndim == 2
-        assert z.ndim == 2
 
         dtype_out = scalar.upcast(alpha.type.dtype, x_val.type.dtype,
             y.type.dtype, z.type.dtype)
@@ -599,7 +595,7 @@ class UsmmCscDense(gof.Op):
         if (PyArray_SIZE(%(alpha)s) != 1)
         {PyErr_SetString(PyExc_NotImplementedError, "The number of element in alpha must be 1"); %(fail)s;}
 
-        if (PyArray_NDIM(%(alpha)s) != 2)
+        if (PyArray_NDIM(%(alpha)s) != 0)
         {PyErr_SetString(PyExc_NotImplementedError, "The number dimension of alpha must be 2"); %(fail)s;}
 
         if (PyArray_NDIM(%(x_val)s) != 1)
@@ -689,7 +685,7 @@ class UsmmCscDense(gof.Op):
         return rval
 
     def c_code_cache_version(self):
-        return (1, blas.blas_header_version())
+        return (2, blas.blas_header_version())
 usmm_csc_dense = UsmmCscDense(inplace=False)
 usmm_csc_dense_inplace = UsmmCscDense(inplace=True)
 
