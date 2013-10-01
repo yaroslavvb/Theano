@@ -139,10 +139,15 @@ def sparse_random_inputs(format, shape, n=1, out_dtype=None, p=0.5, gap=None,
                 value = numpy.random.random(shape) * gap[0]
         return (where * value).astype(out_dtype)
 
-    variable = [getattr(theano.sparse, format + '_matrix')(dtype=out_dtype)
+    if 'dense' == format:
+        variable = [theano.tensor.matrix(dtype=out_dtype)
+                    for k in range(n)]
+        data = [_rand().astype(out_dtype) for k in range(n)]
+    else:
+        variable = [getattr(theano.sparse, format + '_matrix')(dtype=out_dtype)
+                    for k in range(n)]
+        data = [getattr(scipy.sparse, format + '_matrix')(_rand(), dtype=out_dtype)
                 for k in range(n)]
-    data = [getattr(scipy.sparse, format + '_matrix')(_rand(), dtype=out_dtype)
-            for k in range(n)]
     if unsorted_indices:
         for idx in range(n):
             d = data[idx]
