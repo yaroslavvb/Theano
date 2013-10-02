@@ -62,7 +62,11 @@ class GpuDotCsrDense(gof.Op):
     def c_headers(self):
         # std.cout doesn't require the '%' symbol to print stuff...
         # so it works much better with python's string-substitution stuff.
-        return ['<cuda_runtime.h>', '<cusparse_v2.h>', '<compyte/extension.h>', 'cuda.h'] # cuda.h?
+        return ['<cuda_runtime.h>', '<cusparse_v2.h>',
+                '<compyte/extension.h>',
+                'cuda.h',
+                'compyte/util.h'  # needed for GpuArray_ITEMSIZE
+        ]
 
     def c_libraries(self):
         return ['cusparse', 'cudart']
@@ -143,8 +147,7 @@ class GpuDotCsrDense(gof.Op):
     size_t x_shp1 = ((dtype_%(x_shape)s *)PyArray_DATA(%(x_shape)s))[1];
     size_t out_dims[2] = {x_shp0,
                           %(y)s->ga.dimensions[1]};
-    GpuArray usable_y_stack;
-    GpuArray* usable_y = NULL;
+    PyGpuArrayObject* usable_y = NULL;
 
     if (x_shp1 != %(y)s->ga.dimensions[0])
     {
@@ -218,52 +221,32 @@ class GpuDotCsrDense(gof.Op):
     //if nvcc >= 5.5, use cusparseScsrmm2 call.
     if (%(y)s->ga.strides[0] != GpuArray_ITEMSIZE(&%(y)s->ga))
     {
-        usable_y = &usable_y_stack;
-        if (%(name)serr != GA_NO_ERROR) {
-            PyErr_SetString(
-                PyExc_MemoryError,
-                "GpuDotCsrDense: Can't allocate device memory for transposed input.");
-            %(fail)s
-        }
-        if (GpuArray_copy(usable_y, &(%(y)s->ga), GA_F_ORDER) != GA_NO_ERROR){
-            PyErr_SetString(
-                PyExc_ValueError,
-                "GpuDotCsrDense: call to GpuArray_copy() failed");
+        usable_y = pygpu_copy(%(y)s, GA_F_ORDER);
+        if (NULL == usable_y){
+            cusparseDestroyMatDescr(descr);
+            cusparseDestroy(cusparseHandle);
+            descr = 0;
+            cusparseHandle = 0;
+            //pygpu_copy should have set the error message.
             %(fail)s
         }
     }else{
-        usable_y = &(%(y)s->ga);
+        usable_y = %(y)s;
+        Py_INCREF(usable_y);
     }
 
     //TODO reuse!
     Py_XDECREF(%(out)s);
-    %(out)s = new_GpuArray((PyObject *)&PyGpuArrayType,
-        pygpu_default_context(), Py_None);
+    %(out)s = pygpu_empty(2, out_dims, %(y)s->ga.typecode, GA_F_ORDER,
+        pygpu_default_context(),
+        (PyObject *)&PyGpuArrayType);
     if (%(out)s == NULL) {
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
         descr = 0;
         cusparseHandle = 0;
-        // new_GpuArray calls __new__ which will set an error message
-        // if it returns NULL.
-        %(fail)s
-    }
-    //TODO: If next call commented, segfault.
-
-    %(name)serr = GpuArray_empty(&%(out)s->ga,
-        pygpu_default_context()->ops,
-        pygpu_default_context()->ctx,
-        %(y)s->ga.typecode,
-        2, out_dims, GA_F_ORDER);
-    if (%(name)serr != GA_NO_ERROR) {
-        cusparseDestroyMatDescr(descr);
-        cusparseDestroy(cusparseHandle);
-        descr = 0;
-        cusparseHandle = 0;
-        Py_CLEAR(%(out)s);
-        PyErr_SetString(
-            PyExc_MemoryError,
-            "GpuDotCsrDense: Can't allocate device memory for result.");
+        Py_CLEAR(usable_y);
+        // pygpu_empty should have set an error message
         %(fail)s
     }
 #if 1
@@ -274,8 +257,8 @@ class GpuDotCsrDense(gof.Op):
             (float*) cuda_get_ptr(%(x_val)s->ga.data),
             (int*)cuda_get_ptr(%(x_ptr)s->ga.data),
             (int*)cuda_get_ptr(%(x_ind)s->ga.data),
-            (float*)cuda_get_ptr(usable_y->data),
-            usable_y->strides[1]/GpuArray_ITEMSIZE(usable_y), // ldb
+            (float*)cuda_get_ptr(usable_y->ga.data),
+            usable_y->ga.strides[1]/GpuArray_ITEMSIZE(&usable_y->ga), // ldb
             &beta,
             (float*)cuda_get_ptr(%(out)s->ga.data),
             out_dims[0]); //ldc suppose out is f contiguous
@@ -288,7 +271,7 @@ class GpuDotCsrDense(gof.Op):
             (float*) cuda_get_ptr(%(x_val)s->ga.data),
             (int*)cuda_get_ptr(%(x_ptr)s->ga.data),
             (int*)cuda_get_ptr(%(x_ind)s->ga.data),
-            (float*)cuda_get_ptr(usable_y->data),
+            (float*)cuda_get_ptr(usable_y->ga.data),
             usable_y->ga.strides[1]/GpuArray_ITEMSIZE(usable_y), // ldb
             &beta,
             (float*)cuda_get_ptr(%(out)s->ga.data),
@@ -298,6 +281,7 @@ class GpuDotCsrDense(gof.Op):
     if (cusparseStatus != CUSPARSE_STATUS_SUCCESS)
     {
         Py_CLEAR(%(out)s);
+        Py_CLEAR(usable_y);
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
         descr = 0;
@@ -336,6 +320,7 @@ class GpuDotCsrDense(gof.Op):
     if (cudaSuccess != cudaGetLastError())
     {
         Py_CLEAR(%(out)s);
+        Py_CLEAR(usable_y);
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
         descr = 0;
@@ -346,10 +331,7 @@ class GpuDotCsrDense(gof.Op):
         %(fail)s
     }
 
-    if (usable_y == &usable_y_stack)
-    {
-        GpuArray_clear(usable_y);
-    }
+    Py_CLEAR(usable_y);
         """ % locals()
         return code
 
@@ -551,7 +533,7 @@ class GpuDotCsrCsrCsr(gof.Op):
     const size_t y_shp1 = ((dtype_%(y_shape)s *)PyArray_DATA(%(y_shape)s))[1];
     size_t out_dims[2] = {x_shp0,
                           y_shp1};
-    const size_t m_p_1 = x_shp0 + 1;
+    size_t m_p_1 = x_shp0 + 1;
     const size_t nnzX = %(x_val)s->ga.dimensions[0];
     const size_t nnzY = %(y_val)s->ga.dimensions[0];
     int nnzZ = -1;
@@ -647,46 +629,22 @@ class GpuDotCsrCsrCsr(gof.Op):
     ((npy_int32*)PyArray_GETPTR1(%(z_shape)s, 0))[0] = out_dims[0];
     ((npy_int32*)PyArray_GETPTR1(%(z_shape)s, 1))[0] = out_dims[1];
 
-    %(z_val)s = new_GpuArray((PyObject *)&PyGpuArrayType,
-        pygpu_default_context(), Py_None);
-    %(z_ind)s = new_GpuArray((PyObject *)&PyGpuArrayType,
-        pygpu_default_context(), Py_None);
-    %(z_ptr)s = new_GpuArray((PyObject *)&PyGpuArrayType,
-        pygpu_default_context(), Py_None);
-    if (NULL == %(z_val)s || NULL == %(z_ind)s || NULL == %(z_ptr)s) {
-        Py_XDECREF(%(z_val)s);
-        Py_XDECREF(%(z_ind)s);
-        Py_XDECREF(%(z_ptr)s);
-        Py_XDECREF(%(z_shape)s);
+    %(z_ptr)s = pygpu_empty(1, &m_p_1, %(y_ptr)s->ga.typecode, GA_C_ORDER,
+        pygpu_default_context(),
+        (PyObject *)&PyGpuArrayType);
+    if (NULL == %(z_ptr)s) {
+        Py_CLEAR(%(z_val)s);
+        Py_CLEAR(%(z_ind)s);
+        Py_CLEAR(%(z_ptr)s);
+        Py_CLEAR(%(z_shape)s);
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
         descr = 0;
         cusparseHandle = 0;
-        // new_GpuArray calls __new__ which will set an error message
-        // if it returns NULL.
+        // pygpu_empty set an error message
         %(fail)s
     }
 
-    %(name)serr = GpuArray_empty(&%(z_ptr)s->ga,
-        pygpu_default_context()->ops,
-        pygpu_default_context()->ctx,
-        %(y_ptr)s->ga.typecode,
-        1, &m_p_1, //size is m+1
-        GA_C_ORDER);
-    if (%(name)serr != GA_NO_ERROR) {
-        Py_XDECREF(%(z_val)s);
-        Py_XDECREF(%(z_ind)s);
-        Py_XDECREF(%(z_ptr)s);
-        Py_XDECREF(%(z_shape)s);
-        cusparseDestroyMatDescr(descr);
-        cusparseDestroy(cusparseHandle);
-        descr = 0;
-        cusparseHandle = 0;
-        PyErr_SetString(
-            PyExc_MemoryError,
-            "GpuDotCsrCsrCsr: Can't allocate device memory for result.");
-        %(fail)s
-    }
     %(name)serr = cusparseXcsrgemmNnz(cusparseHandle,
                 CUSPARSE_OPERATION_NON_TRANSPOSE,
                 CUSPARSE_OPERATION_NON_TRANSPOSE,
@@ -701,10 +659,10 @@ class GpuDotCsrCsrCsr(gof.Op):
                 (int*)cuda_get_ptr(%(z_ptr)s->ga.data),
                 &nnzZ);
     if (%(name)serr != GA_NO_ERROR) {
-        Py_XDECREF(%(z_val)s);
-        Py_XDECREF(%(z_ind)s);
-        Py_XDECREF(%(z_ptr)s);
-        Py_XDECREF(%(z_shape)s);
+        Py_CLEAR(%(z_val)s);
+        Py_CLEAR(%(z_ind)s);
+        Py_CLEAR(%(z_ptr)s);
+        Py_CLEAR(%(z_shape)s);
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
         descr = 0;
@@ -726,47 +684,39 @@ class GpuDotCsrCsrCsr(gof.Op):
 
     //cudaMalloc((void**)&csrColIndC, sizeof(int)*nnzZ);
     nnzZ_size_t[0] = nnzZ;
-    %(name)serr = GpuArray_empty(&%(z_ind)s->ga,
-        pygpu_default_context()->ops,
-        pygpu_default_context()->ctx,
-        %(y_ind)s->ga.typecode,
-        1, nnzZ_size_t,
-        GA_C_ORDER);
-    if (%(name)serr != GA_NO_ERROR) {
-        Py_XDECREF(%(z_val)s);
-        Py_XDECREF(%(z_ind)s);
-        Py_XDECREF(%(z_ptr)s);
-        Py_XDECREF(%(z_shape)s);
+    %(z_ind)s = pygpu_empty(1, nnzZ_size_t, %(y_ind)s->ga.typecode, GA_C_ORDER,
+        pygpu_default_context(),
+        (PyObject *)&PyGpuArrayType);
+    if (NULL == %(z_ind)s) {
+        Py_CLEAR(%(z_val)s);
+        Py_CLEAR(%(z_ind)s);
+        Py_CLEAR(%(z_ptr)s);
+        Py_CLEAR(%(z_shape)s);
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
         descr = 0;
         cusparseHandle = 0;
-        PyErr_SetString(
-            PyExc_MemoryError,
-            "GpuDotCsrCsrCsr: Can't allocate device memory for result.");
+        // pygpu_empty set an error message
         %(fail)s
     }
+
     //cudaMalloc((void**)&csrValC   , sizeof(float)*nnzZ);
-    %(name)serr = GpuArray_empty(&%(z_val)s->ga,
-        pygpu_default_context()->ops,
-        pygpu_default_context()->ctx,
-        %(y_val)s->ga.typecode,
-        1, nnzZ_size_t,
-        GA_C_ORDER);
-    if (%(name)serr != GA_NO_ERROR) {
-        Py_XDECREF(%(z_val)s);
-        Py_XDECREF(%(z_ind)s);
-        Py_XDECREF(%(z_ptr)s);
-        Py_XDECREF(%(z_shape)s);
+    %(z_val)s = pygpu_empty(1, nnzZ_size_t, %(y_val)s->ga.typecode, GA_C_ORDER,
+        pygpu_default_context(),
+        (PyObject *)&PyGpuArrayType);
+    if (NULL == %(z_ind)s) {
+        Py_CLEAR(%(z_val)s);
+        Py_CLEAR(%(z_ind)s);
+        Py_CLEAR(%(z_ptr)s);
+        Py_CLEAR(%(z_shape)s);
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
         descr = 0;
         cusparseHandle = 0;
-        PyErr_SetString(
-            PyExc_MemoryError,
-            "GpuDotCsrCsrCsr: Can't allocate device memory for result.");
+        // pygpu_empty set an error message
         %(fail)s
     }
+
     cusparseStatus = cusparseScsrgemm(cusparseHandle,
             CUSPARSE_OPERATION_NON_TRANSPOSE,
             CUSPARSE_OPERATION_NON_TRANSPOSE,
@@ -786,10 +736,10 @@ class GpuDotCsrCsrCsr(gof.Op):
 
     if (cusparseStatus != CUSPARSE_STATUS_SUCCESS)
     {
-        Py_XDECREF(%(z_val)s);
-        Py_XDECREF(%(z_ind)s);
-        Py_XDECREF(%(z_ptr)s);
-        Py_XDECREF(%(z_shape)s);
+        Py_CLEAR(%(z_val)s);
+        Py_CLEAR(%(z_ind)s);
+        Py_CLEAR(%(z_ptr)s);
+        Py_CLEAR(%(z_shape)s);
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
         descr = 0;
@@ -818,7 +768,7 @@ class GpuDotCsrCsrCsr(gof.Op):
                 cusparseStatus, err_msg);
         %(fail)s
     }
-        """
+        """ % locals()
         if config.gpuarray.sync:
             code += "GpuArray_sync(%(out)s);" % locals()
         code += """
@@ -826,10 +776,10 @@ class GpuDotCsrCsrCsr(gof.Op):
 
     if (cudaSuccess != cudaGetLastError())
     {
-        Py_XDECREF(%(z_val)s);
-        Py_XDECREF(%(z_ind)s);
-        Py_XDECREF(%(z_ptr)s);
-        Py_XDECREF(%(z_shape)s);
+        Py_CLEAR(%(z_val)s);
+        Py_CLEAR(%(z_ind)s);
+        Py_CLEAR(%(z_ptr)s);
+        Py_CLEAR(%(z_shape)s);
         cusparseDestroyMatDescr(descr);
         cusparseDestroy(cusparseHandle);
         descr = 0;
