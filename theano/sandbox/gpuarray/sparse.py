@@ -37,11 +37,12 @@ class GpuDotCsrDense(gof.Op):
         assert numpy.intc == numpy.int32, ("We suppose that the c type 'int'"
                                            " is equivalent to int32, but this"
                                            " is false!")
-        assert x_val.dtype == 'float32' and x_val.ndim == 1
+        assert x_val.dtype in ['float32', 'float64'] and x_val.ndim == 1
         assert x_ind.dtype == 'int32' and x_ind.ndim == 1
         assert x_ptr.dtype == 'int32' and x_ptr.ndim == 1
         assert x_shape.dtype == 'int32' and x_shape.ndim == 1
-        assert y.dtype == 'float32' and y.ndim == 2
+        assert y.dtype in ['float32', 'float64'] and y.ndim == 2
+        assert y.dtype == x_val.dtype
 
         bz = (False, y.type.broadcastable[1])
         out = GpuArrayType(broadcastable=bz,
@@ -137,9 +138,17 @@ class GpuDotCsrDense(gof.Op):
         x_val, x_ind, x_ptr, x_shape, y = inputs
         out, = outputs
         fail = sub['fail']
+        if node.inputs[0].dtype == 'float32':
+            dtype_code = 'S'
+            dtype = 'float'
+        elif node.inputs[0].dtype == 'float64':
+            dtype_code = 'D'
+            dtype = 'double'
+        else:
+            raise Exception("This should not happen")
         code = """
-    const float alpha = 1;
-    const float beta = 0;
+    const %(dtype)s alpha = 1;
+    const %(dtype)s beta = 0;
 
     cusparseStatus_t cusparseStatus;
     int %(name)serr;
@@ -250,31 +259,31 @@ class GpuDotCsrDense(gof.Op):
         %(fail)s
     }
 #if 1
-        cusparseStatus = cusparseScsrmm(cusparseHandle,
+        cusparseStatus = cusparse%(dtype_code)scsrmm(cusparseHandle,
             CUSPARSE_OPERATION_NON_TRANSPOSE,
             out_dims[0], out_dims[1], x_shp1,
             %(x_val)s->ga.dimensions[0], &alpha, descr,
-            (float*) cuda_get_ptr(%(x_val)s->ga.data),
+            (%(dtype)s*) cuda_get_ptr(%(x_val)s->ga.data),
             (int*)cuda_get_ptr(%(x_ptr)s->ga.data),
             (int*)cuda_get_ptr(%(x_ind)s->ga.data),
-            (float*)cuda_get_ptr(usable_y->ga.data),
+            (%(dtype)s*)cuda_get_ptr(usable_y->ga.data),
             usable_y->ga.strides[1]/GpuArray_ITEMSIZE(&usable_y->ga), // ldb
             &beta,
-            (float*)cuda_get_ptr(%(out)s->ga.data),
+            (%(dtype)s*)cuda_get_ptr(%(out)s->ga.data),
             out_dims[0]); //ldc suppose out is f contiguous
 #else
-        cusparseStatus = cusparseScsrmm2(cusparseHandle,
+        cusparseStatus = cusparse%(dtype_code)scsrmm2(cusparseHandle,
             CUSPARSE_OPERATION_NON_TRANSPOSE,
             CUSPARSE_OPERATION_NON_TRANSPOSE,
             out_dims[0], out_dims[1], x_shp1,
             %(x_val)s->ga.dimensions[0], &alpha, descr,
-            (float*) cuda_get_ptr(%(x_val)s->ga.data),
+            (%(dtype)s*) cuda_get_ptr(%(x_val)s->ga.data),
             (int*)cuda_get_ptr(%(x_ptr)s->ga.data),
             (int*)cuda_get_ptr(%(x_ind)s->ga.data),
-            (float*)cuda_get_ptr(usable_y->ga.data),
+            (%(dtype)s*)cuda_get_ptr(usable_y->ga.data),
             usable_y->ga.strides[1]/GpuArray_ITEMSIZE(usable_y), // ldb
             &beta,
-            (float*)cuda_get_ptr(%(out)s->ga.data),
+            (%(dtype)s*)cuda_get_ptr(%(out)s->ga.data),
             out_dims[0]); //ldc suppose out is f contiguous
 #endif
 
@@ -353,7 +362,7 @@ def local_gpu_dot_csr_dense(node):
 
         a, b = node.inputs
         if (a.type.format == 'csr' and a.dtype == b.dtype
-            and a.dtype == 'float32'):
+            and a.dtype in ['float32', 'float64']):
 
             a_val, a_ind, a_ptr, a_shape = sparse.csm_properties(a)
             b = gpu_from_host(b)
@@ -370,7 +379,7 @@ def local_gpu_dot_csr_dense(node):
 
         a, b = node.inputs
         if (b.type.format == 'csc' and a.dtype == b.dtype
-            and a.dtype == 'float32'):
+            and a.dtype in ['float32', 'float64']):
             a = gpu_from_host(a.T)
             b_val, b_ind, b_ptr, b_shape = sparse.csm_properties(b.T)
             # The .T introduce the host_from_gpu
@@ -410,14 +419,15 @@ class GpuDotCsrCsrCsr(gof.Op):
         assert numpy.intc == numpy.int32, ("We suppose that the c type 'int'"
                                            " is equivalent to int32, but this"
                                            " is false!")
-        assert x_val.dtype == 'float32' and x_val.ndim == 1
+        assert x_val.dtype in ['float32', 'float64'] and x_val.ndim == 1
         assert x_ind.dtype == 'int32' and x_ind.ndim == 1
         assert x_ptr.dtype == 'int32' and x_ptr.ndim == 1
         assert x_shape.dtype == 'int32' and x_shape.ndim == 1
-        assert y_val.dtype == 'float32' and y_val.ndim == 1
+        assert y_val.dtype in ['float32', 'float64'] and y_val.ndim == 1
         assert y_ind.dtype == 'int32' and y_ind.ndim == 1
         assert y_ptr.dtype == 'int32' and y_ptr.ndim == 1
         assert y_shape.dtype == 'int32' and y_shape.ndim == 1
+        assert x_val.dtype == y_val.dtype
 
         bz = (False,)
         out_val = GpuArrayType(broadcastable=bz,
@@ -516,14 +526,21 @@ class GpuDotCsrCsrCsr(gof.Op):
         ]
 
     def c_code(self, node, name, inputs, outputs, sub):
-        #TODO support other dtype then float32
         (x_val, x_ind, x_ptr, x_shape,
          y_val, y_ind, y_ptr, y_shape) = inputs
         z_val, z_ind, z_ptr, z_shape = outputs
         fail = sub['fail']
+        if node.inputs[0].dtype == 'float32':
+            dtype_code = 'S'
+            dtype = 'float'
+        elif node.inputs[0].dtype == 'float64':
+            dtype_code = 'D'
+            dtype = 'double'
+        else:
+            raise Exception("This should not happen")
         code = """
-    const float alpha = 1;
-    const float beta = 0;
+    const %(dtype)s alpha = 1;
+    const %(dtype)s beta = 0;
 
     cusparseStatus_t cusparseStatus;
     int %(name)serr;
@@ -700,7 +717,7 @@ class GpuDotCsrCsrCsr(gof.Op):
         %(fail)s
     }
 
-    //cudaMalloc((void**)&csrValC   , sizeof(float)*nnzZ);
+    //cudaMalloc((void**)&csrValC   , sizeof(%(dtype)s)*nnzZ);
     %(z_val)s = pygpu_empty(1, nnzZ_size_t, %(y_val)s->ga.typecode, GA_C_ORDER,
         pygpu_default_context(),
         (PyObject *)&PyGpuArrayType);
@@ -717,20 +734,20 @@ class GpuDotCsrCsrCsr(gof.Op):
         %(fail)s
     }
 
-    cusparseStatus = cusparseScsrgemm(cusparseHandle,
+    cusparseStatus = cusparse%(dtype_code)scsrgemm(cusparseHandle,
             CUSPARSE_OPERATION_NON_TRANSPOSE,
             CUSPARSE_OPERATION_NON_TRANSPOSE,
             out_dims[0], out_dims[1], x_shp1, //m, n, k
             descr, nnzX,
-            (float*)cuda_get_ptr(%(x_val)s->ga.data),
+            (%(dtype)s*)cuda_get_ptr(%(x_val)s->ga.data),
             (int*)cuda_get_ptr(%(x_ptr)s->ga.data),
             (int*)cuda_get_ptr(%(x_ind)s->ga.data),
             descr,  nnzY,
-            (float*)cuda_get_ptr(%(y_val)s->ga.data),
+            (%(dtype)s*)cuda_get_ptr(%(y_val)s->ga.data),
             (int*)cuda_get_ptr(%(y_ptr)s->ga.data),
             (int*)cuda_get_ptr(%(y_ind)s->ga.data),
             descr,
-            (float*)cuda_get_ptr(%(z_val)s->ga.data),
+            (%(dtype)s*)cuda_get_ptr(%(z_val)s->ga.data),
             (int*)cuda_get_ptr(%(z_ptr)s->ga.data),
             (int*)cuda_get_ptr(%(z_ind)s->ga.data));
 
@@ -812,7 +829,7 @@ def local_gpu_dot_csr_csr_csr(node):
 
         a, b = node.inputs
         if (a.type.format == 'csr' and b.type.format == 'csr' and
-            a.dtype == b.dtype and a.dtype == 'float32'):
+            a.dtype == b.dtype and a.dtype in ['float32', 'float64']):
 
             a_val, a_ind, a_ptr, a_shape = sparse.csm_properties(a)
             b_val, b_ind, b_ptr, b_shape = sparse.csm_properties(b)
