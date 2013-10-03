@@ -1,4 +1,6 @@
 #TODO skip if scipy.sparse isn't present.
+import cPickle
+import os
 
 import numpy
 import scipy
@@ -7,7 +9,7 @@ from theano.gof.python25 import any
 import theano.sandbox.cuda as cuda_ndarray
 import theano.sandbox.gpuarray
 from theano.sandbox.gpuarray.sparse import GpuDotCsrDense, GpuDotCsrCsrCsr
-import theano.sparse
+import theano.sparse as sparse
 import theano.sparse.tests.test_basic
 from theano.tests.unittest_tools import SkipTest
 from theano.tests import unittest_tools as utt
@@ -422,11 +424,28 @@ dense      all 512 8192 8192 2.934 0.095 30.79  1.85
 0.0100   41755 512 8192 8192 1.825 0.123 14.81  7.63 23.81  1.61  0.77
 0.0500  209821 512 8192 8192 3.215 0.298 10.79  7.77  9.85  0.91  0.32
 
+   #dot(vector with zero, matrix) speed up vs vector without zero
+   #StructuredDot() faster then dot, via opt op
+   #test usmm vs dot speed
+
 """
     prob = [0.0005, 0.001,
             0.005, 0.01,
             0.05]
-    #m = minibatch
+    pkl_file = "test_sparse.py.speed_result.pkl"
+    pkl_file = os.path.join(os.path.split(__file__)[0], pkl_file)
+    results = {}
+    if os.path.exists(pkl_file):
+        pkl_f = open(pkl_file, 'r')
+        try:
+            f = cPickle.load(pkl_f)
+            results = f
+        except EOFError:
+            pass
+        finally:
+            pkl_f.close()
+
+    #m = minibatch, 10-20
     #n = n hid
     #k = n input
     shapes = [
@@ -468,41 +487,88 @@ dense      all 512 8192 8192 2.934 0.095 30.79  1.85
         (128, 10, 64*1024),
         (512, 10, 64*1024),
     ]
-    x = theano.sparse.csr_matrix(dtype='float32')
-    xd = theano.tensor.fmatrix()
-    y = theano.tensor.fmatrix()
-    out = theano.sparse.basic._dot(x, y)
-    outd = theano.dot(xd, y)
 
-    def time(sym_inputs, out, op, inputs, m_gpu=mode_with_gpu):
-        c = theano.compile.profiling.ProfileStats(atexit_print=False)
-        g = theano.compile.profiling.ProfileStats(atexit_print=False)
-        f = theano.function(sym_inputs, out,
-                            mode=mode_without_gpu, profile=c)
-        f_gpu = theano.function(sym_inputs, out,
+    def time(sym_inputs, out, op, inputs,
+             m_gpu=mode_with_gpu, results={}, key=None):
+        keyc = key + ('cpu',)
+        keyg = key + ('gpu',)
+        if keyc in results:
+            c = results[keyc]
+            res = None
+        else:
+            c = theano.compile.profiling.ProfileStats(atexit_print=False)
+            f = theano.function(sym_inputs, out,
+                                mode=mode_without_gpu, profile=c)
+            for i in range(10):
+                res = f(*inputs)
+            results[keyc] = c
+        if keyg in results:
+            g = results[keyg]
+            gpu_res = None
+        else:
+            g = theano.compile.profiling.ProfileStats(atexit_print=False)
+            f = theano.function(sym_inputs, out,
                                 mode=m_gpu, profile=g)
-        for i in range(10):
-            res = f(*inputs)
-        for i in range(100):
-            res_gpu = f_gpu(*inputs)
-        utt.assert_allclose(res, res_gpu)
+            for i in range(100):
+                res_gpu = f(*inputs)
+            results[keyg] = g
+
+        if res is not None and res_gpu is not None:
+            utt.assert_allclose(res, res_gpu)
+
         return c, g
 
-    print "%sparse nnz    m n   k    cpu(s) gpu(s) sp_cpu/sp_gpu, sp_cpu_fct/sp_gpu_fct, d_cpu/sp_gpu, d_cpu/sp_cpu d_gpu/sp_gpu"
-    print "dot(csr, dense)"
-    #TODO uncomment
-    for order in [numpy.ascontiguousarray,
-                  numpy.asfortranarray]:
-        print order
-        for m, n, k in shapes:
-            if (k * n) * 4 > 350*2**20:
-                print "skip shape m,n,k:", m, n, k
-                continue
-            x1 = numpy.random.rand(m, k).astype('float32')
-            y1 = numpy.random.rand(k, n).astype('float32')
-            y1 = order(y1)
-            try:
-                cd, gd = time([xd, y], outd, None, [x1, y1], m_gpu=mode_with_cuda)
+    print "%sparse    nnz   m n   k    cpu(s) gpu(s) sp_cpu/sp_gpu, sp_cpu_fct/sp_gpu_fct, d_cpu/sp_gpu, d_cpu/sp_cpu d_gpu/sp_gpu"
+
+    def usmm(x, y):
+        return theano.sparse.opt.usmm(1., x, y, 0.)
+
+    def usmm_csc_dense(x, y):
+        return theano.sparse.opt.usmm_csc_dense(
+            1., sparse.csm_data(x),
+            sparse.csm_indices(x),
+            sparse.csm_indptr(x),
+            sparse.csm_shape(x)[0], y,
+            theano.tensor.zeros((x.shape[0], y.shape[1]), dtype=x.dtype))
+
+    for op, f1, f2 in [
+        ((usmm, theano.sparse.Usmm), 'csr', 'dense'),
+        ((usmm_csc_dense, theano.sparse.opt.UsmmCscDense), 'csc', 'dense'),
+#        (theano.sparse.basic.StructuredDot, 'csr', 'dense'),
+        # The first input must be sparse.
+        #(theano.sparse.basic.StructuredDot, 'dense', 'csc'),
+        (theano.sparse.basic.Dot, 'csr', 'dense'),
+        (theano.sparse.basic.Dot, 'dense', 'csc'),
+    ]:
+        if isinstance(op, tuple):
+            op_call = op[0]
+            op = op[1]
+        else:
+            op_call = op()
+        print "%s(%s, %s)" % (op, f1, f2)
+        x = theano.sparse.tests.test_basic.sparse_random_inputs(
+            f1, (10, 10), out_dtype='float32')[0][0]
+        xd = theano.tensor.fmatrix()
+        y = theano.sparse.tests.test_basic.sparse_random_inputs(
+            f2, (10, 10), out_dtype='float32')[0][0]
+        yd = theano.tensor.fmatrix()
+        out = op_call(x, y)
+        outd = theano.dot(xd, yd)
+        #TODO uncomment
+        for order in [numpy.ascontiguousarray,
+                      numpy.asfortranarray]:
+            print order
+            for m, n, k in shapes:
+                if (k * n) * 4 > 350*2**20:
+                    print "skip shape m,n,k:", m, n, k
+                    continue
+                x1 = numpy.random.rand(m, k).astype('float32')
+                y1 = numpy.random.rand(k, n).astype('float32')
+                x1 = order(x1)  # order(y1) don't always raise an error.
+                y1 = order(y1)
+                key = (theano.tensor.dot, 'dense', 'dense', order, m, n, k)
+                cd, gd = time([xd, yd], outd, None, [x1, y1],
+                              m_gpu=mode_with_cuda, results=results, key=key)
                 cd_t = cd.class_time()[theano.tensor.blas.Dot22]
                 gd_t = gd.class_time()[theano.sandbox.cuda.blas.GpuDot22]
                 cd_i = cd.class_callcount()[theano.tensor.blas.Dot22]
@@ -510,88 +576,47 @@ dense      all 512 8192 8192 2.934 0.095 30.79  1.85
                 print "dense      all %d %d %d %.3f %.3f %6.2f %6.2f" % (
                     m, n, k, cd_t/cd_i, gd_t/gd_i, (cd_t/cd_i) / (gd_t/gd_i),
                     (cd.vm_call_time/cd_i)/(gd.vm_call_time/gd_i))
-            except Exception, e:
-                print e
-                print "The previous exception arrose with the following config"
-                print "dense      all %d %d %d" % (
-                    m, n, k)
-            for p in prob:
-                x1 = theano.sparse.tests.test_basic.sparse_random_inputs(
-                    'csr', (m, k), out_dtype='float32', p=p)[1][0]
-                try:
-                    c, g = time([x, y], out, None, [x1, y1])
-
-                    c_t = c.class_time()[theano.sparse.basic.Dot]
-                    g_t = g.class_time()[GpuDotCsrDense]
-                    c_i = c.class_callcount()[theano.sparse.basic.Dot]
-                    g_i = g.class_callcount()[GpuDotCsrDense]
+                for p in prob:
+                    key = (op, f1, f2, order, m, n, k, p)
+                    if "dense" != f1:
+                        x1 = sparse.tests.test_basic.sparse_random_inputs(
+                            f1, (m, k), out_dtype='float32', p=p)[1][0]
+                    if "dense" != f2:
+                        y1 = sparse.tests.test_basic.sparse_random_inputs(
+                            f2, (k, n), out_dtype='float32', p=p)[1][0]
+                    if hasattr(x1, 'nnz'):
+                        nnz = x1.nnz
+                    elif hasattr(y1, 'nnz'):
+                        nnz = y1.nnz
+                    else:
+                        raise Exception()
+                    try:
+                        c, g = time([x, y], out, None, [x1, y1],
+                                    results=results, key=key)
+                    except Exception, ex:
+                        print repr(ex)
+                        print "The previous exception happened with config"
+                        print "%.4f %7d %d %d %d" % (
+                            p, nnz, m, n, k)
+                        continue
+                    c_t = c.class_time()[op]
+                    c_i = c.class_callcount()[op]
+                    if GpuDotCsrDense in g.class_time():
+                        g_t = g.class_time()[GpuDotCsrDense]
+                        g_i = g.class_callcount()[GpuDotCsrDense]
+                    else:
+                        g_t = -1
+                        g_i = 1
                     print "%.4f %7d %d %d %d %.3f %.3f %6.2f %6.2f %6.2f %6.2f %6.2f" % (
-                        p, x1.nnz,
+                        p, nnz,
                         m, n, k, c_t/c_i, g_t/g_i,
                         (c_t/c_i) / (g_t/g_i),  # sp_cpu/sp_gpu
                         (c.vm_call_time/c_i)/(g.vm_call_time/g_i),  # sp_cpu_fct/sp_gpu_fct
                         (cd_t/cd_i)/(g_t/g_i),  # d_cpu/sp_gpu
                         (cd_t/cd_i)/(c_t/c_i),  # d_cpu/sp_cpu
                         (gd_t/gd_i)/(g_t/g_i),  # d_gpu/sp_gpu
-                    )
-                except Exception, e:
-                    print e
-                    print "The previous exception arrose with the following config"
-                    print "%.4f %7d %d %d %d" % (
-                        p, x1.nnz,
-                        m, n, k)
-    x = theano.tensor.fmatrix()
-    y = theano.sparse.csc_matrix(dtype='float32')
-    yd = theano.tensor.fmatrix()
-    out = theano.sparse.basic._dot(x, y)
-    outd = theano.dot(x, yd)
-    print "dot(dense, csc)"
+                        )
 
-    for order in [numpy.ascontiguousarray,
-                  #numpy.asfortranarray
-              ]:
-        print order
-        for m, n, k in shapes:
-            x1 = numpy.random.rand(m, k).astype('float32')
-            x1 = order(x1)
-            y1 = numpy.random.rand(k, n).astype('float32')
-            try:
-                cd, gd = time([x, yd], outd, None, [x1, y1], m_gpu=mode_with_cuda)
-                cd_t = cd.class_time()[theano.tensor.blas.Dot22]
-                gd_t = gd.class_time()[theano.sandbox.cuda.blas.GpuDot22]
-                cd_i = cd.class_callcount()[theano.tensor.blas.Dot22]
-                gd_i = gd.class_callcount()[theano.sandbox.cuda.blas.GpuDot22]
-                print "dense      all %d %d %d %.3f %.3f %6.2f %6.2f" % (
-                    m, n, k, cd_t/cd_i, gd_t/gd_i, (cd_t/cd_i) / (gd_t/gd_i),
-                    (cd.vm_call_time/cd_i)/(gd.vm_call_time/gd_i))
-            except Exception, e:
-                print e
-                print "The previous exception arrose with the following config"
-                print "dense      all %d %d %d" % (
-                    m, n, k)
-
-            for p in prob:
-                y1 = theano.sparse.tests.test_basic.sparse_random_inputs(
-                    'csr', (k, n), out_dtype='float32', p=p)[1][0]
-                try:
-                    c, g = time([x, y], out, None, [x1, y1])
-
-                    c_t = c.class_time()[theano.sparse.basic.Dot]
-                    g_t = g.class_time()[GpuDotCsrDense]
-                    c_i = c.class_callcount()[theano.sparse.basic.Dot]
-                    g_i = g.class_callcount()[GpuDotCsrDense]
-                    print "%.4f %7d %d %d %d %.3f %.3f %6.2f %6.2f %6.2f %6.2f %6.2f" % (
-                        p, y1.nnz,
-                        m, n, k, c_t/c_i, g_t/g_i,
-                        (c_t/c_i) / (g_t/g_i),  # sp_cpu/sp_gpu
-                        (c.vm_call_time/c_i)/(g.vm_call_time/g_i),  # sp_cpu_fct/sp_gpu_fct
-                        (cd_t/cd_i)/(g_t/g_i),  # d_cpu/sp_gpu
-                        (cd_t/cd_i)/(c_t/c_i),  # d_cpu/sp_cpu
-                        (gd_t/gd_i)/(g_t/g_i),  # d_gpu/sp_gpu
-                    )
-                except Exception:
-                    print e
-                    print "The previous exception arrose with the following config"
-                    print "%.4f %7d %d %d %d" % (
-                        p, y1.nnz,
-                        m, n, k)
+                pkl_f = open(pkl_file, 'w')
+                cPickle.dump(results, pkl_f)
+                pkl_f.close()
