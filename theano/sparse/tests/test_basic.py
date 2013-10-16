@@ -120,7 +120,7 @@ def sparse_random_inputs(format, shape, n=1, out_dtype=None, p=0.5, gap=None,
         assert gap[0] >= 0
 
     def _rand():
-        where = numpy.random.binomial(1, p, size=shape).astype('int8')
+        where = numpy.random.binomial(1, p, size=shape)
 
         if out_dtype in sparse.discrete_dtypes:
             if not gap:
@@ -137,12 +137,15 @@ def sparse_random_inputs(format, shape, n=1, out_dtype=None, p=0.5, gap=None,
                 value = a + numpy.random.random(shape) * (b - a)
             else:
                 value = numpy.random.random(shape) * gap[0]
-        return (where * value).astype(out_dtype)
+        ret = where * value
+        if ret.dtype != out_dtype:
+            ret = numpy.asarray(ret, dtype=out_dtype)
+        return ret
 
     if 'dense' == format:
         variable = [theano.tensor.matrix(dtype=out_dtype)
                     for k in range(n)]
-        data = [_rand().astype(out_dtype) for k in range(n)]
+        data = [_rand() for k in range(n)]
     else:
         variable = [getattr(theano.sparse, format + '_matrix')(dtype=out_dtype)
                     for k in range(n)]
