@@ -1143,11 +1143,9 @@ class CLinker(link.Linker):
 
         version = []
         for node_pos, node in enumerate(order):
-            try:
+            if hasattr(node.op, 'c_code_cache_version_apply'):
                 # Pure Ops do not have a c_code_cache_version_apply ...
                 version.append(node.op.c_code_cache_version_apply(node))
-            except AttributeError:
-                pass
             for i in node.inputs:
                 version.append(i.type.c_code_cache_version())
             for o in node.outputs:
