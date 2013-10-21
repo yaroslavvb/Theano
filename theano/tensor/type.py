@@ -496,6 +496,8 @@ class TensorType(Type):
         """Override `CLinkerType.c_sync` """
         fail = sub['fail']
         type_num = self.dtype_specs()[2]
+        #The Py_INCREF of Py_None is needed, as name should have refcount of 1 here.
+        #c_cleanup called later will cancel the Py_XINCREF after.
         return """
         {Py_XDECREF(py_%(name)s);}
         if (!%(name)s) {
