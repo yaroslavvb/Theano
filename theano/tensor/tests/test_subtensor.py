@@ -142,17 +142,27 @@ class T_subtensor(unittest.TestCase, utt.TestOptimizationMixin):
 
     def test1_ok_range_finite(self):
         n = self.shared(numpy.arange(3, dtype=self.dtype))
-        t = n[0:2]
-        self.assertTrue(isinstance(t.owner.op, Subtensor))
-        tval = self.eval_output_and_check(t)
-        self.assertTrue(tval.shape == (2,))
-        self.assertTrue((tval == [0, 1]).all())
+        for idx in [slice(0, 2),
+                    slice(scal.sharedvar.shared(0),
+                          scal.sharedvar.shared(2))
+                ]:
+            t = n[idx]
+            self.assertTrue(isinstance(t.owner.op, Subtensor))
+            tval = self.eval_output_and_check(t)
+            self.assertTrue(tval.shape == (2,))
+            self.assertTrue((tval == [0, 1]).all())
 
     def test2_ok_range_finite(self):
         n = self.shared(numpy.arange(12, dtype=self.dtype).reshape((3, 4)))
         # Also check negative index
-        for idx in [(slice(0, 2), 3), ((slice(0, 2), -1)), (slice(0, 2), -4)]:
-            t = n[idx]  # l]#0:2,3]
+        for idx in [(slice(0, 2), 3), ((slice(0, 2), -1)), (slice(0, 2), -4),
+                    (slice(scal.sharedvar.shared(0),
+                           scal.sharedvar.shared(2))),
+                    (slice(scal.sharedvar.shared(0),
+                           scal.sharedvar.shared(2)),
+                     theano.scalar.shared_var(3))
+        ]:
+            t = n[idx]
             self.assertTrue(isinstance(t.owner.op, Subtensor))
             tval = self.eval_output_and_check(t)
             self.assertTrue(tval.shape == (2,))
@@ -291,11 +301,15 @@ class T_subtensor(unittest.TestCase, utt.TestOptimizationMixin):
 
     def test3_ok_mat(self):
         n = self.shared(numpy.arange(24, dtype=self.dtype).reshape((2, 3, 4)))
-        t = n[0, 0, 0]
-        self.assertTrue(isinstance(t.owner.op, Subtensor))
-        tval = self.eval_output_and_check(t)
-        self.assertTrue(tval.shape == ())
-        self.assertTrue(numpy.all(tval == 0))
+        for idx in [(0, 0, 0), (0, 1, 2)]:
+            for trans in [lambda a: a, lambda a: scal.sharedvar.shared(a)]:
+                idx2 = tuple(map(trans, idx))
+                t = n[idx2]
+                self.assertTrue(isinstance(t.owner.op, Subtensor))
+                tval = self.eval_output_and_check(t)
+                self.assertTrue(tval.shape == ())
+                base = n.get_value()[idx]
+                self.assertTrue(numpy.all(tval == base))
 
     def test_long(self):
         n = self.shared(numpy.arange(12, dtype=self.dtype).reshape((4, 3)))
