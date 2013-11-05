@@ -958,7 +958,7 @@ class ConvOp(OpenMPOp):
         return ['<numpy/noprefix.h>', '<iostream>', '<sstream>']
 
     def c_code_cache_version(self):
-        return (10, self.openmp, blas.blas_header_version())
+        return (11, self.openmp, blas.blas_header_version())
 
     def c_support_code(self):
         return """
@@ -2136,10 +2136,43 @@ if ((!%(z)s)
 z_arr = (PyArrayObject*) %(z)s;
 
 //assertions
-if (PyArray_STRIDES(%(z)s)[0] != PyArray_DIMS(%(z)s)[1] *PyArray_DIMS(%(z)s)[2] *PyArray_DIMS(%(z)s)[3] * sizeof(%(type)s)) %(fail)s;
-if (PyArray_STRIDES(%(z)s)[1] != PyArray_DIMS(%(z)s)[2] * PyArray_DIMS(%(z)s)[3] * sizeof(%(type)s)) %(fail)s;
-if (PyArray_STRIDES(%(z)s)[2] != PyArray_DIMS(%(z)s)[3] * sizeof(%(type)s)) %(fail)s;
-if (PyArray_STRIDES(%(z)s)[3] != sizeof(%(type)s)) %(fail)s;
+if (PyArray_STRIDES(%(z)s)[0] != PyArray_DIMS(%(z)s)[1] *PyArray_DIMS(%(z)s)[2] *PyArray_DIMS(%(z)s)[3] * sizeof(%(type)s)
+    && PyArray_DIMS(%(z)s)[0] != 1)
+{
+  PyErr_Format(PyExc_ValueError,
+               "z strides aren't what is expected(1) z.strides=(%%d, %%d, %%d, %%d) z.dims=(%%d, %%d, %%d, %%d)",
+               PyArray_STRIDES(%(z)s)[0], PyArray_STRIDES(%(z)s)[1], PyArray_STRIDES(%(z)s)[2], PyArray_STRIDES(%(z)s)[3],
+               PyArray_DIMS(%(z)s)[0], PyArray_DIMS(%(z)s)[1], PyArray_DIMS(%(z)s)[2], PyArray_DIMS(%(z)s)[3]);
+  %(fail)s;
+}
+if (PyArray_STRIDES(%(z)s)[1] != PyArray_DIMS(%(z)s)[2] * PyArray_DIMS(%(z)s)[3] * sizeof(%(type)s)
+    && PyArray_DIMS(%(z)s)[1] != 1)
+{
+  PyErr_Format(PyExc_ValueError,
+               "z strides aren't what is expected(2) z.strides=(%%d, %%d, %%d, %%d) z.dims=(%%d, %%d, %%d, %%d)",
+               PyArray_STRIDES(%(z)s)[0], PyArray_STRIDES(%(z)s)[1], PyArray_STRIDES(%(z)s)[2], PyArray_STRIDES(%(z)s)[3],
+               PyArray_DIMS(%(z)s)[0], PyArray_DIMS(%(z)s)[1], PyArray_DIMS(%(z)s)[2], PyArray_DIMS(%(z)s)[3]);
+  %(fail)s;
+}
+if (PyArray_STRIDES(%(z)s)[2] != PyArray_DIMS(%(z)s)[3] * sizeof(%(type)s) &&
+    PyArray_DIMS(%(z)s)[2] != 1)
+{
+  PyErr_Format(PyExc_ValueError,
+               "z strides aren't what is expected(3) z.strides=(%%d, %%d, %%d, %%d) z.dims=(%%d, %%d, %%d, %%d)",
+               PyArray_STRIDES(%(z)s)[0], PyArray_STRIDES(%(z)s)[1], PyArray_STRIDES(%(z)s)[2], PyArray_STRIDES(%(z)s)[3],
+               PyArray_DIMS(%(z)s)[0], PyArray_DIMS(%(z)s)[1], PyArray_DIMS(%(z)s)[2], PyArray_DIMS(%(z)s)[3]);
+
+  %(fail)s;
+}
+if (PyArray_STRIDES(%(z)s)[3] != sizeof(%(type)s) &&
+    PyArray_DIMS(%(z)s)[3] != 1)
+{
+  PyErr_Format(PyExc_ValueError,
+               "z strides aren't what is expected(4) z.strides=(%%d, %%d, %%d, %%d) z.dims=(%%d, %%d, %%d, %%d)",
+               PyArray_STRIDES(%(z)s)[0], PyArray_STRIDES(%(z)s)[1], PyArray_STRIDES(%(z)s)[2], PyArray_STRIDES(%(z)s)[3],
+               PyArray_DIMS(%(z)s)[0], PyArray_DIMS(%(z)s)[1], PyArray_DIMS(%(z)s)[2], PyArray_DIMS(%(z)s)[3]);
+  %(fail)s;
+}
 
 //The if on the number of loop make a speed up for small array.
 //with g++ 4.5.1. The compiler should be smart enough to do this himself!
