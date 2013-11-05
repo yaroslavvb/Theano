@@ -665,6 +665,7 @@ class GemmRelated(Op):
             Py_XDECREF(%(_x)s);
             %(_x)s = _x_copy;
             Sx = PyArray_STRIDES(%(_x)s);
+            Nx = PyArray_DIMS(%(_x)s);
         }
 
         if ((Sy[0] < 1) || (Sy[1] < 1) || (Sy[0] MOD type_size) || (Sy[1] MOD type_size)
@@ -676,6 +677,7 @@ class GemmRelated(Op):
             Py_XDECREF(%(_y)s);
             %(_y)s = _y_copy;
             Sy = PyArray_STRIDES(%(_y)s);
+            Ny = PyArray_DIMS(%(_y)s);
         }
 
         if ((Sz[0] < 1) || (Sz[1] < 1) || (Sz[0] MOD type_size) || (Sz[1] MOD type_size)
@@ -687,6 +689,7 @@ class GemmRelated(Op):
             Py_XDECREF(%(_zout)s);
             %(_zout)s = _z_copy;
             Sz = PyArray_STRIDES(%(_zout)s);
+            Nz = PyArray_DIMS(%(_zout)s);
         }
         """
 
@@ -694,9 +697,9 @@ class GemmRelated(Op):
         /*
         encode the stride structure of _x,_y,_zout into a single integer
         */
-        unit |= ((Sx[1] == type_size) ? 0x0 : (Sx[0] == type_size) ? 0x1 : 0x2) << 8;
-        unit |= ((Sy[1] == type_size) ? 0x0 : (Sy[0] == type_size) ? 0x1 : 0x2) << 4;
-        unit |= ((Sz[1] == type_size) ? 0x0 : (Sz[0] == type_size) ? 0x1 : 0x2) << 0;
+        unit |= ((Sx[1] == type_size) ? 0x0 : (Sx[0] == type_size) ? 0x1 : (Nx[0] == 1) ? 0x0 : (Nx[1] == 1) ? 0x1 : 0x2) << 8;
+        unit |= ((Sy[1] == type_size) ? 0x0 : (Sy[0] == type_size) ? 0x1 : (Ny[0] == 1) ? 0x0 : (Ny[1] == 1) ? 0x1 : 0x2) << 4;
+        unit |= ((Sz[1] == type_size) ? 0x0 : (Sz[0] == type_size) ? 0x1 : (Nz[0] == 1) ? 0x0 : (Nz[1] == 1) ? 0x1 : 0x2) << 0;
         """
 
     compute_strides = """
@@ -829,7 +832,7 @@ class GemmRelated(Op):
             self.end_switch_typenum), '')
 
     def build_gemm_version(self):
-        return (12, blas_header_version())
+        return (13, blas_header_version())
 
 
 class Gemm(GemmRelated):

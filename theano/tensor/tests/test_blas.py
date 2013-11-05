@@ -1112,7 +1112,7 @@ class TestGemv(TestCase, unittest_tools.TestOptimizationMixin):
         self.assertFunctionContains1(f, Gemv(False))
 
         # Assert they produce the same output
-        assert numpy.allclose(f(), numpy.dot(v.get_value(), w.get_value()))
+        unittest_tools.assert_allclose(f(), numpy.dot(v.get_value(), w.get_value()))
 
     def test_dot_vm(self):
         ''' Test vector dot matrix '''
@@ -1127,12 +1127,12 @@ class TestGemv(TestCase, unittest_tools.TestOptimizationMixin):
         self.assertFunctionContains1(f, Gemv(True))
 
         # Assert they produce the same output
-        assert numpy.allclose(f(), numpy.dot(v.get_value(), m.get_value()))
+        unittest_tools.assert_allclose(f(), numpy.dot(v.get_value(), m.get_value()))
         # Assert it works when m has no contiguous dimension
         m.set_value(
                 m.get_value(borrow=True)[::-1, ::-1],
                 borrow=True)
-        assert numpy.allclose(f(), numpy.dot(v.get_value(), m.get_value()))
+        unittest_tools.assert_allclose(f(), numpy.dot(v.get_value(), m.get_value()))
 
     def test_dot_mv(self):
         ''' Test matrix dot vector '''
@@ -1147,12 +1147,12 @@ class TestGemv(TestCase, unittest_tools.TestOptimizationMixin):
         self.assertFunctionContains1(f, Gemv(True))
 
         # Assert they produce the same output
-        assert numpy.allclose(f(), numpy.dot(m.get_value(), v.get_value()))
+        unittest_tools.assert_allclose(f(), numpy.dot(m.get_value(), v.get_value()))
         # Assert it works when m has no contiguous dimension
         m.set_value(
                 m.get_value(borrow=True)[::-1, ::-1],
                 borrow=True)
-        assert numpy.allclose(f(), numpy.dot(m.get_value(), v.get_value()))
+        unittest_tools.assert_allclose(f(), numpy.dot(m.get_value(), v.get_value()))
 
     @staticmethod
     def t_gemv1(m_shp):
@@ -1168,7 +1168,7 @@ class TestGemv(TestCase, unittest_tools.TestOptimizationMixin):
         f = theano.function([], v2 + theano.dot(m, v1), mode=mode_blas_opt)
 
         # Assert they produce the same output
-        assert numpy.allclose(f(),
+        unittest_tools.assert_allclose(f(),
                 numpy.dot(m.get_value(), v1.get_value()) + v2_orig)
         topo = f.maker.fgraph.toposort()
         assert len(topo) == 1
@@ -1181,7 +1181,7 @@ class TestGemv(TestCase, unittest_tools.TestOptimizationMixin):
 
         # Assert they produce the same output
         g()
-        assert numpy.allclose(v2.get_value(),
+        unittest_tools.assert_allclose(v2.get_value(),
                 numpy.dot(m.get_value(), v1.get_value()) + v2_orig)
         topo = g.maker.fgraph.toposort()
         assert len(topo) == 1
@@ -1194,10 +1194,10 @@ class TestGemv(TestCase, unittest_tools.TestOptimizationMixin):
                 m.get_value(borrow=True)[::-1, ::-1],
                 borrow=True)
         v2.set_value(v2_orig)
-        assert numpy.allclose(f(),
+        unittest_tools.assert_allclose(f(),
                 numpy.dot(m.get_value(), v1.get_value()) + v2_orig)
         g()
-        assert numpy.allclose(v2.get_value(),
+        unittest_tools.assert_allclose(v2.get_value(),
                 numpy.dot(m.get_value(), v1.get_value()) + v2_orig)
 
     def test_gemv1(self):
@@ -1219,7 +1219,7 @@ class TestGemv(TestCase, unittest_tools.TestOptimizationMixin):
         f = theano.function([], v2 + theano.dot(v1, m), mode=mode_blas_opt)
 
         # Assert they produce the same output
-        assert numpy.allclose(f(),
+        unittest_tools.assert_allclose(f(),
                 numpy.dot(v1.get_value(), m.get_value()) + v2.get_value())
         topo = f.maker.fgraph.toposort()
         assert sum(isinstance(node.op, Gemv) for node in topo) == 1
@@ -1231,7 +1231,7 @@ class TestGemv(TestCase, unittest_tools.TestOptimizationMixin):
 
         # Assert they produce the same output
         g()
-        assert numpy.allclose(v2.get_value(),
+        unittest_tools.assert_allclose(v2.get_value(),
                 numpy.dot(v1.get_value(), m.get_value()) + v2_orig)
         topo = g.maker.fgraph.toposort()
         assert sum(isinstance(node.op, Gemv) for node in topo) == 1
@@ -1243,10 +1243,10 @@ class TestGemv(TestCase, unittest_tools.TestOptimizationMixin):
                 m.get_value(borrow=True)[::-1, ::-1],
                 borrow=True)
         v2.set_value(v2_orig)
-        assert numpy.allclose(f(),
+        unittest_tools.assert_allclose(f(),
                 numpy.dot(v1.get_value(), m.get_value()) + v2.get_value())
         g()
-        assert numpy.allclose(v2.get_value(),
+        unittest_tools.assert_allclose(v2.get_value(),
                 numpy.dot(v1.get_value(), m.get_value()) + v2_orig)
 
     def test_gemv_dimensions(self):
@@ -1822,16 +1822,16 @@ class TestBlasStrides(TestCase):
                                 cv[::c_step1, ::c_step2])
 
                 f_nn()
-                assert numpy.allclose(a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n)
 
                 f_nt()
-                assert numpy.allclose(a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n)
 
                 f_tn()
-                assert numpy.allclose(a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n)
 
                 f_tt()
-                assert numpy.allclose(a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n)
 
     def test_dot22(self):
         self.cmp_dot22((3, 4), (4, 5))
@@ -1892,16 +1892,16 @@ class TestBlasStrides(TestCase):
                                     cv[::c_step1, ::c_step2])
 
                 f_nn()
-                assert numpy.allclose(a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n)
 
                 f_nt()
-                assert numpy.allclose(a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n)
 
                 f_tn()
-                assert numpy.allclose(a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n)
 
                 f_tt()
-                assert numpy.allclose(a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n)
 
     def test_dot22scalar(self):
         self.cmp_dot22scalar((3, 4), (4, 5))
@@ -1985,39 +1985,39 @@ class TestBlasStrides(TestCase):
                 # a's value is updated, so we need to reinitialize it each time
                 a.set_value(a_dev.copy()[::a_step1, ::a_step2], borrow=True)
                 f_nnn()
-                assert numpy.allclose(a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n)
 
                 a.set_value(a_dev.copy()[::a_step1, ::a_step2], borrow=True)
                 f_nnt()
-                assert numpy.allclose(a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n)
 
                 a.set_value(a_dev.copy()[::a_step1, ::a_step2], borrow=True)
                 f_ntn()
-                assert numpy.allclose(a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n)
 
                 a.set_value(a_dev.copy()[::a_step1, ::a_step2], borrow=True)
                 f_ntt()
-                assert numpy.allclose(a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n)
 
                 a_t.set_value(transpose(a_dev.copy())[::a_step2, ::a_step1],
                         borrow=True)
                 f_tnn()
-                assert numpy.allclose(a_t.get_value(), at_n)
+                unittest_tools.assert_allclose(a_t.get_value(), at_n)
 
                 a_t.set_value(transpose(a_dev.copy())[::a_step2, ::a_step1],
                         borrow=True)
                 f_tnt()
-                assert numpy.allclose(a_t.get_value(), at_n)
+                unittest_tools.assert_allclose(a_t.get_value(), at_n)
 
                 a_t.set_value(transpose(a_dev.copy())[::a_step2, ::a_step1],
                         borrow=True)
                 f_ttn()
-                assert numpy.allclose(a_t.get_value(), at_n)
+                unittest_tools.assert_allclose(a_t.get_value(), at_n)
 
                 a_t.set_value(transpose(a_dev.copy())[::a_step2, ::a_step1],
                         borrow=True)
                 f_ttt()
-                assert numpy.allclose(a_t.get_value(), at_n)
+                unittest_tools.assert_allclose(a_t.get_value(), at_n)
 
     def test_gemm(self):
         self.cmp_gemm((3, 5), (3, 4), (4, 5))
@@ -2073,11 +2073,11 @@ class TestBlasStrides(TestCase):
                         + l * numpy.dot(bv[::b_step1, ::b_step2],
                                         cv[::c_step]))
                 f_n()
-                assert numpy.allclose(a.get_value(), a_n), (a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n), (a.get_value(), a_n)
 
                 a.set_value(a_dev.copy()[::a_step], borrow=True)
                 f_t()
-                assert numpy.allclose(a.get_value(), a_n), (a.get_value(), a_n)
+                unittest_tools.assert_allclose(a.get_value(), a_n), (a.get_value(), a_n)
 
     def test_gemv(self):
         self.cmp_gemv(3, (3, 5), 5)
@@ -2127,12 +2127,12 @@ class TestBlasStrides(TestCase):
                 f_n()
                 n_n = (av[::a_step1, ::a_step2]
                         + l * numpy.outer(bv[::b_step], cv[::c_step]))
-                assert numpy.allclose(a.get_value(), n_n), (a.get_value(), n_n)
+                unittest_tools.assert_allclose(a.get_value(), n_n), (a.get_value(), n_n)
 
                 f_t()
                 n_t = (av.T[::a_step1, ::a_step2]
                         + l * numpy.outer(bv[::b_step], cv[::c_step]).T)
-                assert numpy.allclose(a_t.get_value(), n_t),\
+                unittest_tools.assert_allclose(a_t.get_value(), n_t),\
                         (a_t.get_value(), n_t)
 
     def test_ger_strides(self):
