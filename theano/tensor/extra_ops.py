@@ -26,6 +26,8 @@ class CumsumOp(theano.Op):
 
         if self.axis is None:
             out_type = theano.tensor.vector(dtype=x.dtype)  # Flatten
+        elif self.axis >= x.ndim:
+            raise ValueError('axis(={0}) out of bounds'.format(self.axis))
 
         return theano.Apply(self, [x], [out_type])
 
@@ -133,6 +135,8 @@ class CumprodOp(theano.Op):
 
         if self.axis is None:
             out_type = theano.tensor.vector(dtype=x.dtype)  # Flatten
+        elif self.axis >= x.ndim:
+            raise ValueError('axis(={0}) out of bounds'.format(self.axis))
 
         return theano.Apply(self, [x], [out_type])
 
