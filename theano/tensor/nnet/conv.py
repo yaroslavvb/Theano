@@ -16,7 +16,7 @@ import numpy
 
 import theano
 from theano.tensor import (as_tensor_variable, blas, get_scalar_constant_value,
-                           patternbroadcast, NotScalarConstantError)
+                           patternbroadcast, NotScalarConstantError, zeros_like)
 from theano import OpenMPOp, config
 from theano.gof import Apply
 from theano.gof.python25 import any
@@ -788,8 +788,8 @@ class ConvOp(OpenMPOp):
                 shuffled_kerns.name = 'shuffled_for_conv3D(%s)' % flipped_kerns.name
 
             tmp_node = theano.tensor.nnet.conv3D(
-                V = shuffled_inputs,
-                W= shuffled_kerns,
+                V=shuffled_inputs,
+                W=shuffled_kerns,
                 b=theano.tensor.alloc(numpy.asarray(0, dtype=kerns.dtype),
                                       kerns.shape[0]),
                 d=(self.dx, self.dy, 1))
@@ -799,8 +799,56 @@ class ConvOp(OpenMPOp):
             # mimic what happens inside theano.grad: get the input gradient
             # of the final cost wrt all variables involved.
             return theano.gradient.grad(cost=None,
-                    known_grads={node: gz}, wrt=[inputs, kerns])
+                                        known_grads={node: gz},
+                                        wrt=[inputs, kerns])
 
+        elif self.out_mode == 'full' and (self.dx > 2 or self.dy > 2):
+            # Use the gradient as defined in conv3D, because the implementation
+            # by Conv is slow (about 3x slower than conv3D, and probably 10x
+            # slower than it could be), and incorrect when dx or dy > 2.
+
+            # build a "node", that should be equivalent to the one given by
+            # self.make_node, but using conv3D instead of self.
+            shuffled_inputs = inputs.dimshuffle(0, 2, 3, 'x', 1)
+            shuffled_inputs = inputs.dimshuffle(0, 2, 3, 1).reshape(
+                (inputs.shape[0], inputs.shape[2],
+                 inputs.shape[3], 1, inputs.shape[1]))
+#            if inputs.name is not None:
+            shuffled_inputs.name = 'shuffle_for_conv3D(%s)' % str(inputs.name)
+            flipped_kerns = kerns[:, :, ::-1, ::-1]
+            if kerns.name is not None:
+                flipped_kerns.ne = 'flipped(%s)' % kerns.name
+            shuffled_kerns = flipped_kerns.dimshuffle(0, 2, 3, 'x', 1)
+            shuffled_kerns = flipped_kerns.dimshuffle(0, 2, 3, 1).reshape(
+                (kerns.shape[0], kerns.shape[2],
+                 kerns.shape[3], 1, kerns.shape[1]))
+#            if flipped_kerns.name is not None:
+            shuffled_kerns.name = 'shuffled_for_conv3D(%s)' % str(flipped_kerns.name)
+
+            conv_out = self(*inp)
+            #conv_out = conv_out.dimshuffle(0, 2, 3, 'x', 1)
+            import pdb;pdb.set_trace()
+            conv_out = conv_out.dimshuffle(0, 2, 3, 1).reshape(
+                (conv_out.shape[0], conv_out.shape[2],
+                 conv_out.shape[3], 1, conv_out.shape[1]))
+            tmp_node = theano.tensor.nnet.convTransp3D(
+                shuffled_kerns,
+                zeros_like(shuffled_inputs[0, 0, 0, :, 0]),
+                (self.dx, self.dy, 1), conv_out)
+            #conv3D(
+#                V = shuffled_inputs,
+#                W= shuffled_kerns,
+#                b=theano.tensor.alloc(numpy.asarray(0, dtype=kerns.dtype),
+#                                      kerns.shape[0]),
+#                d=(self.dx, self.dy, 1))
+            node = theano.tensor.addbroadcast(
+                tmp_node, 3).dimshuffle(0, 4, 1, 2)
+            node = tmp_node
+            # mimic what happens inside theano.grad: get the input gradient
+            # of the final cost wrt all variables involved.
+            return theano.gradient.grad(cost=None,
+                                        known_grads={node: gz},
+                                        wrt=[inputs, kerns])
 
         if self.dx not in (1, 2) or self.dy not in (1, 2):
             raise NotImplementedError(

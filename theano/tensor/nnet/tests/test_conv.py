@@ -260,6 +260,8 @@ class TestConv2D(utt.InferShapeTester):
         self.validate((1, 1, 6, 6), (1, 1, 3, 3), 'valid', subsample=(3, 3))
 
         # Fails as of 2012-07-11
+        self.assertRaises(NotImplementedError, self.validate, (2, 5, 6, 6),
+                          (4, 5, 3, 3), 'full', subsample=(3, 3))
         self.assertRaises(NotImplementedError, self.validate, (1, 1, 6, 6),
                           (1, 1, 3, 3), 'full', subsample=(3, 3))
 
