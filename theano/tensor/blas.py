@@ -1502,7 +1502,8 @@ class GemmOptimizer(Optimizer):
         while did_something:
             nb_iter += 1
             t0 = time.time()
-            nodelist = theano.gof.graph.io_toposort(fgraph.inputs, fgraph.outputs)
+            nodelist = theano.gof.graph.io_toposort(fgraph.inputs,
+                                                    fgraph.outputs)
             time_toposort += time.time() - t0
             did_something = False
             nodelist.reverse()
@@ -1515,6 +1516,14 @@ class GemmOptimizer(Optimizer):
                 if not node in fgraph.apply_nodes:
                     # This mean that we already removed this node from
                     # the graph
+                    continue
+                if not [isinstance(inp, (T.Dot, Dot22)) or
+                        (inp.owner and isinstance(inp.owner.op, T.Elemwise))
+                        for inp in node.inputs]:
+                    # We don't want to check all the elemwise cases,
+                    # just the one close enough to the Dot. The
+                    # elemwise check will "canonize" the graph and
+                    # check all elemwises needed.
                     continue
                 try:
                     new_outputs, time1, time2, time3 = _gemm_from_node2(node)
