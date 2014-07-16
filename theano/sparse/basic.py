@@ -689,7 +689,8 @@ class CSM(gof.Op):
             # node.inputs[3] is of lenght as we only support sparse matrix.
             return [(node.inputs[3][0], node.inputs[3][1])]
         else:
-            return node.fgraph.shape_feature.default_infer_shape(node, shapes)
+            f = theano.tensor.opt.ShapeFeature.default_infer_shape
+            return f(node, shapes)
 
 
 CSC = CSM('csc')

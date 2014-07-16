@@ -1890,7 +1890,8 @@ class AdvancedSubtensor(Op):
                 else:
                     return [ind1shp]
         # Default case, we don't know
-        return node.fgraph.shape_feature.default_infer_shape(node, ishapes)
+        f = theano.tensor.opt.ShapeFeature.default_infer_shape
+        return f(node, ishapes)
 
     def perform(self, node, inputs, out_):
         out, = out_

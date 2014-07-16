@@ -754,10 +754,14 @@ class ShapeFeature(object):
 
     """
 
-    def shape_ir(self, i, r):
+    @staticmethod
+    def shape_ir(i, r):
         """Return symbolic r.shape[i] for tensor variable r, int i"""
         if hasattr(r.type, "broadcastable") and r.type.broadcastable[i]:
-            return self.lscalar_one
+            if hasattr(r, 'fgraph'):
+                return r.fgraph.shape_feature.lscalar_one
+            else:
+                return T.constant(1, dtype='int64')
         else:
             # Do not call make_node for test_value
             s = Shape_i(i)(r)
@@ -767,14 +771,16 @@ class ShapeFeature(object):
                 pass
             return s
 
-    def shape_tuple(self, r):
+    @staticmethod
+    def shape_tuple(r):
         """Return a tuple of symbolic shape vars for tensor variable r"""
         if not hasattr(r, 'ndim'):
             # This happen for NoneConst.
             return None
-        return tuple([self.shape_ir(i, r) for i in xrange(r.ndim)])
+        return tuple([ShapeFeature.shape_ir(i, r) for i in xrange(r.ndim)])
 
-    def default_infer_shape(self, node, i_shapes):
+    @staticmethod
+    def default_infer_shape(node, i_shapes):
         """Return a list of shape tuple or None for the outputs of node.
 
         This function is used for Ops that don't implement infer_shape.
@@ -784,7 +790,7 @@ class ShapeFeature(object):
         rval = []
         for r in node.outputs:
             try:
-                rval.append(self.shape_tuple(r))
+                rval.append(ShapeFeature.shape_tuple(r))
             except AttributeError:
                 rval.append(None)
         return rval
